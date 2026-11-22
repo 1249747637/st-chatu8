@@ -7,8 +7,8 @@
             </span>
         </div>
         <div class="st-chatu8-section-body">
-            <div class="st-chatu8-field">
-                <label for="yusheid">提示词预设</label>
+            <div class="st-chatu8-field st-chatu8-style-preset-field">
+                <label for="yusheid">画风及模型预设</label>
                 <div class="st-chatu8-profile-controls">
                     <select id="yusheid" class="st-chatu8-select"></select>
                     <div class="st-chatu8-preset-box-wrapper">
@@ -17,7 +17,7 @@
                         </button>
                         <div class="st-chatu8-preset-box-dropdown">
                             <div class="st-chatu8-preset-box-header">
-                                <span class="st-chatu8-preset-box-title"><i class="fa-solid fa-box-archive"></i> 提示词预设操作</span>
+                                <span class="st-chatu8-preset-box-title"><i class="fa-solid fa-box-archive"></i> 画风及模型预设操作</span>
                                 <button type="button" class="st-chatu8-preset-box-close" title="关闭">&times;</button>
                             </div>
                             <div class="st-chatu8-preset-box-group">
@@ -47,7 +47,16 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            
+                <div class="st-chatu8-style-preset-toolbar">
+                    <select id="preset_sort" class="st-chatu8-select" aria-label="画风预设排序">
+                        <option value="newest">最近新增</option><option value="oldest">较早新增</option>
+                        <option value="name_asc">名称升序</option><option value="name_desc">名称降序</option>
+                    </select>
+                    <button type="button" id="preset_favorite" class="st-chatu8-btn st-chatu8-favorite-toggle" aria-pressed="false" title="收藏当前预设">☆ 收藏</button>
+                    <label class="st-chatu8-favorites-filter"><input type="checkbox" id="preset_favorites_only">只看收藏</label>
+                </div>
+</div>
             <div class="st-chatu8-field-col">
                 <label for="fixedPrompt">固定正面提示词 <span class="st-chatu8-unsaved-warning" title="设置尚未保存" style="display: none;"><i class="fa-solid fa-triangle-exclamation"></i></span></label>
                 <button class="st-chatu8-icon-btn" id="translate_fixedPrompt" title="翻译" style="align-self: flex-end; margin: 4px 0;"><i class="fa-solid fa-language"></i></button>

@@ -1,14 +1,14 @@
 <div id="ch-tab-novelai">
     <div class="ch-prompts-section st-chatu8-settings-section st-chatu8-collapsible-section is-collapsed" data-section-id="fixed_prompts_novelai">
         <div class="st-chatu8-section-header">
-            <h3 class="st-chatu8-section-title">固定提示词</h3>
+            <h3 class="st-chatu8-section-title">画风及模型预设</h3>
             <span class="st-chatu8-section-toggle">
                 <i class="fa-solid fa-chevron-down st-chatu8-section-toggle-icon"></i>
             </span>
         </div>
         <div class="st-chatu8-section-body">
-            <div class="st-chatu8-field">
-                <label for="yusheid_novelai">提示词预设</label>
+            <div class="st-chatu8-field st-chatu8-style-preset-field">
+                <label for="yusheid_novelai">画风及模型预设</label>
                 <div class="st-chatu8-profile-controls">
                     <select id="yusheid_novelai" class="st-chatu8-select"></select>
                     <div class="st-chatu8-preset-box-wrapper">
@@ -17,7 +17,7 @@
                         </button>
                         <div class="st-chatu8-preset-box-dropdown">
                             <div class="st-chatu8-preset-box-header">
-                                <span class="st-chatu8-preset-box-title"><i class="fa-solid fa-box-archive"></i> 提示词预设操作</span>
+                                <span class="st-chatu8-preset-box-title"><i class="fa-solid fa-box-archive"></i> 画风及模型预设操作</span>
                                 <button type="button" class="st-chatu8-preset-box-close" title="关闭">&times;</button>
                             </div>
                             <div class="st-chatu8-preset-box-group">
@@ -47,7 +47,16 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            
+                <div class="st-chatu8-style-preset-toolbar">
+                    <select id="preset_sort_novelai" class="st-chatu8-select" aria-label="画风预设排序">
+                        <option value="newest">最近新增</option><option value="oldest">较早新增</option>
+                        <option value="name_asc">名称升序</option><option value="name_desc">名称降序</option>
+                    </select>
+                    <button type="button" id="preset_favorite_novelai" class="st-chatu8-btn st-chatu8-favorite-toggle" aria-pressed="false" title="收藏当前预设">☆ 收藏</button>
+                    <label class="st-chatu8-favorites-filter"><input type="checkbox" id="preset_favorites_only_novelai">只看收藏</label>
+                </div>
+</div>
             <div class="st-chatu8-field-col">
                 <label for="fixedPrompt_novelai">固定正面提示词 <span class="st-chatu8-unsaved-warning" title="设置尚未保存" style="display: none;"><i class="fa-solid fa-triangle-exclamation"></i></span></label>
                 <button class="st-chatu8-icon-btn" id="translate_fixedPrompt_novelai" title="翻译" style="align-self: flex-end; margin: 4px 0;"><i class="fa-solid fa-language"></i></button>
@@ -68,7 +77,166 @@
                 <div id="novelai_negativePrompt_tokens" class="st-chatu8-token-display">当前占用: 0 / 512</div>
                 <div id="negativePrompt_novelai-results" class="ch-autocomplete-results"></div>
             </div>
+        
+            <div class="st-chatu8-style-model-controls"><h4>模型与采样</h4>
+<div class="st-chatu8-field">
+                <label for="novelaimode">模型</label>
+                <div style="display: flex; flex-direction: column; width: 100%; max-width: 420px; gap: 6px;">
+                    <select id="novelaimode" class="st-chatu8-select">
+                        <option>nai-diffusion-3</option>
+                        <option>nai-diffusion-4-full</option>
+                        <option>nai-diffusion-4-curated-preview</option>
+                        <option>nai-diffusion-4-5-curated</option>
+                        <option>nai-diffusion-4-5-full</option>
+                        <option>nai-diffusion-5-curated</option>
+                        <option>nai-diffusion-5-full</option>
+                    </select>
+                    <button type="button" class="st-chatu8-btn" id="st_chatu8_reset_model_default" title="将当前所选模型的全部生成参数重置为官网出厂默认值">
+                        <i class="fa-solid fa-rotate-left"></i> 重置当前模型为官网默认
+                    </button>
+                </div>
+            </div><div class="st-chatu8-field" id="novelai_v5_effort_container" style="display: none;">
+                <label for="novelai_v5_effort">
+                    质量/算力档位 (Effort)
+                    <small style="display: block; font-size: 0.82em; color: var(--st-chatu8-text-secondary, #aaa); margin-top: 2px;">
+                        仅 V5 Full 支持：Medium 模式省约 42% 算力且画质相近
+                    </small>
+                </label>
+                <div style="display: flex; gap: 8px; width: 100%; max-width: 420px;">
+                    <button type="button" class="st-chatu8-btn st-chatu8-effort-btn" data-effort="high" id="st_chatu8_effort_high" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                        <i class="fa-solid fa-gem"></i> High (高质量·23步)
+                    </button>
+                    <button type="button" class="st-chatu8-btn st-chatu8-effort-btn" data-effort="medium" id="st_chatu8_effort_medium" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                        <i class="fa-solid fa-bolt"></i> Medium (省流·14步)
+                    </button>
+                    <input type="hidden" id="novelai_v5_effort" value="high" />
+                </div>
+            </div><div class="st-chatu8-field" id="novelai_straight_alpha_container" style="display: none;">
+                <label for="novelai_straight_alpha">透明图片开关 (straight_alpha)</label>
+                <div class="st-chatu8-toggle">
+                    <input type="checkbox" id="novelai_straight_alpha" />
+                    <span class="st-chatu8-slider"></span>
+                </div>
+            </div><div class="st-chatu8-field">
+                <label for="novelai_sampler">采样方法</label>
+                <select id="novelai_sampler" class="st-chatu8-select">
+                    <option value="k_euler">Euler</option>
+                    <option value="ddim_v3">DDIM</option>
+                    <option value="k_dpmpp_2s_ancestral"> DPM++ 2S Ancestral</option>
+                    <option value="k_dpmpp_2m">DPM++ 2M</option>
+                    <option value="k_euler_ancestral"> Euler Ancestral</option>
+                    <option value="k_dpmpp_2m_sde">DPM++ 2M SDE</option>
+                    <option value="k_dpmpp_sde">DPM++ SDE</option>
+                </select>
+            </div><div class="st-chatu8-field">
+                <label for="Schedule">噪点表</label>
+                <select id="Schedule" class="st-chatu8-select">
+                    <option>native</option>
+                    <option>exponential</option>
+                    <option>polyexponential</option>
+                    <option>karras</option>
+                </select>
+            </div><div class="st-chatu8-field" id="novelai_v5_schedule_container" style="display: none;">
+                <label for="novelai_v5_schedule">V5 噪点表</label>
+                <select id="novelai_v5_schedule" class="st-chatu8-select">
+                    <option value="none">默认（不发送）</option>
+                    <option value="native">native</option>
+                    <option value="karras">karras</option>
+                    <option value="exponential">exponential</option>
+                    <option value="polyexponential">polyexponential</option>
+                </select>
+            </div><div class="st-chatu8-field">
+                <label for="nai3Scale">Prompt Guidance</label>
+                <input type="number" id="nai3Scale" class="st-chatu8-text-input">
+            </div><div class="st-chatu8-field">
+                <label for="cfg_rescale">Prompt Guidance Rescale</label>
+                <input type="number" id="cfg_rescale" class="st-chatu8-text-input">
+            </div><div class="st-chatu8-field">
+                <label for="AI_use_coords">AI 默认角色位置</label>
+                <div class="st-chatu8-toggle">
+                    <input id="AI_use_coords" type="checkbox"/>
+                    <span class="st-chatu8-slider"></span>
+                </div>
+            </div><div class="st-chatu8-field" id="st-chatu8-nai3-sm-field" style="display: none;">
+                <label for="sm">SMEA</label>
+                <div class="st-chatu8-toggle">
+                    <input id="sm" type="checkbox"/>
+                    <span class="st-chatu8-slider"></span>
+                </div>
+            </div><div class="st-chatu8-field" id="st-chatu8-nai3-dyn-field" style="display: none;">
+                <label for="dyn">SMEA DYN</label>
+                <div class="st-chatu8-toggle">
+                    <input id="dyn" type="checkbox"/>
+                    <span class="st-chatu8-slider"></span>
+                </div>
+            </div><div class="st-chatu8-field">
+                <label for="nai3Variety">多样性 (Variety)</label>
+                <div class="st-chatu8-toggle">
+                    <input id="nai3Variety" type="checkbox"/>
+                    <span class="st-chatu8-slider"></span>
+                </div>
+            </div><div class="st-chatu8-field" id="st-chatu8-nai3-deceisp-field" style="display: none;">
+                <label for="nai3Deceisp">减少伪影 (Decrisp)</label>
+                <div class="st-chatu8-toggle">
+                    <input id="nai3Deceisp" type="checkbox"/>
+                    <span class="st-chatu8-slider"></span>
+                </div>
+            </div>
+<div class="st-chatu8-settings-section"> 
+        <div class="st-chatu8-field">
+            <label for="addFurryDataset">添加福瑞数据集</label>
+            <select id="addFurryDataset" class="st-chatu8-select">
+                <option value="true">启用</option>
+                <option value="false" selected="">禁用</option>
+            </select>
         </div>
+        <div class="st-chatu8-field">
+            <label for="AQT_novelai">正面质量预设</label>
+            <select id="AQT_novelai" class="st-chatu8-select">
+                <option value="best quality, amazing quality, very aesthetic, absurdres">启用</option>
+                <option value="">禁用</option>
+            </select>
+        </div>
+        <div class="st-chatu8-field">
+            <label for="UCP_novelai">负面质量预设</label>
+            <select id="UCP_novelai" class="st-chatu8-select">
+            </select>
+        </div>
+    </div><div class="st-chatu8-settings-section">
+        <h4>生成参数</h4>
+        <div class="st-chatu8-grid">
+            <div class="st-chatu8-field">
+                <label for="novelai_size">预设尺寸</label>
+                <select id="novelai_size" class="st-chatu8-select">
+                    <option value="512x512">512x512 (1:1, 图标)</option>
+                    <option value="640x640">640x640 (1:1, 图标)</option>
+                    <option value="512x768">512x768 (2:3, 垂直)</option>
+                    <option value="768x512">768x512 (3:2, 水平)</option>
+                    <option value="1024x1024">1024x1024 (1:1, SDXL)</option>
+                    <option value="1216x832">1216x832 (19:13, 超高清)</option>
+                    <option value="832x1216">832x1216 (13:19, 超高清)</option>
+                </select>
+            </div>
+            <div class="st-chatu8-field">
+                <label for="novelai_width">宽度 (width)</label>
+                <input type="number" id="novelai_width" class="st-chatu8-text-input">
+            </div>
+            <div class="st-chatu8-field">
+                <label for="novelai_height">高度 (height)</label>
+                <input type="number" id="novelai_height" class="st-chatu8-text-input">
+            </div>
+            <div class="st-chatu8-field">
+                <label for="novelai_steps">生成步数 (steps)</label>
+                <input type="number" id="novelai_steps" class="st-chatu8-text-input">
+            </div>
+            <div class="st-chatu8-field">
+                <label for="novelai_seed">种子 (seed)</label>
+                <input type="number" id="novelai_seed" class="st-chatu8-text-input">
+            </div>
+        </div>
+    </div>
+            </div>
+</div>
     </div>
     <div class="st-chatu8-settings-section st-chatu8-collapsible-section is-collapsed" data-section-id="prompt_replace_novelai"> 
         <div class="st-chatu8-section-header">
@@ -124,29 +292,9 @@
             </div>
         </div>
     </div>
-        <div class="st-chatu8-settings-section"> 
-        <div class="st-chatu8-field">
-            <label for="addFurryDataset">添加福瑞数据集</label>
-            <select id="addFurryDataset" class="st-chatu8-select">
-                <option value="true">启用</option>
-                <option value="false" selected="">禁用</option>
-            </select>
-        </div>
-        <div class="st-chatu8-field">
-            <label for="AQT_novelai">正面质量预设</label>
-            <select id="AQT_novelai" class="st-chatu8-select">
-                <option value="best quality, amazing quality, very aesthetic, absurdres">启用</option>
-                <option value="">禁用</option>
-            </select>
-        </div>
-        <div class="st-chatu8-field">
-            <label for="UCP_novelai">负面质量预设</label>
-            <select id="UCP_novelai" class="st-chatu8-select">
-            </select>
-        </div>
-    </div>
+        
     <div class="st-chatu8-settings-section">
-        <h3>配置档案</h3>
+        <h3>API 配置档案</h3>
         <div class="st-chatu8-field">
             <label for="novelai_profile_id">当前配置</label>
             <div class="st-chatu8-profile-controls">
@@ -254,155 +402,21 @@
                     <span class="st-chatu8-slider"></span>
                 </div>
             </div>
-            <div class="st-chatu8-field">
-                <label for="novelaimode">模型</label>
-                <div style="display: flex; flex-direction: column; width: 100%; max-width: 420px; gap: 6px;">
-                    <select id="novelaimode" class="st-chatu8-select">
-                        <option>nai-diffusion-3</option>
-                        <option>nai-diffusion-4-full</option>
-                        <option>nai-diffusion-4-curated-preview</option>
-                        <option>nai-diffusion-4-5-curated</option>
-                        <option>nai-diffusion-4-5-full</option>
-                        <option>nai-diffusion-5-curated</option>
-                        <option>nai-diffusion-5-full</option>
-                    </select>
-                    <button type="button" class="st-chatu8-btn" id="st_chatu8_reset_model_default" title="将当前所选模型的全部生成参数重置为官网出厂默认值">
-                        <i class="fa-solid fa-rotate-left"></i> 重置当前模型为官网默认
-                    </button>
-                </div>
-            </div>
-            <div class="st-chatu8-field" id="novelai_v5_effort_container" style="display: none;">
-                <label for="novelai_v5_effort">
-                    质量/算力档位 (Effort)
-                    <small style="display: block; font-size: 0.82em; color: var(--st-chatu8-text-secondary, #aaa); margin-top: 2px;">
-                        仅 V5 Full 支持：Medium 模式省约 42% 算力且画质相近
-                    </small>
-                </label>
-                <div style="display: flex; gap: 8px; width: 100%; max-width: 420px;">
-                    <button type="button" class="st-chatu8-btn st-chatu8-effort-btn" data-effort="high" id="st_chatu8_effort_high" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                        <i class="fa-solid fa-gem"></i> High (高质量·23步)
-                    </button>
-                    <button type="button" class="st-chatu8-btn st-chatu8-effort-btn" data-effort="medium" id="st_chatu8_effort_medium" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                        <i class="fa-solid fa-bolt"></i> Medium (省流·14步)
-                    </button>
-                    <input type="hidden" id="novelai_v5_effort" value="high" />
-                </div>
-            </div>
-            <div class="st-chatu8-field" id="novelai_straight_alpha_container" style="display: none;">
-                <label for="novelai_straight_alpha">透明图片开关 (straight_alpha)</label>
-                <div class="st-chatu8-toggle">
-                    <input type="checkbox" id="novelai_straight_alpha" />
-                    <span class="st-chatu8-slider"></span>
-                </div>
-            </div>
-            <div class="st-chatu8-field">
-                <label for="novelai_sampler">采样方法</label>
-                <select id="novelai_sampler" class="st-chatu8-select">
-                    <option value="k_euler">Euler</option>
-                    <option value="ddim_v3">DDIM</option>
-                    <option value="k_dpmpp_2s_ancestral"> DPM++ 2S Ancestral</option>
-                    <option value="k_dpmpp_2m">DPM++ 2M</option>
-                    <option value="k_euler_ancestral"> Euler Ancestral</option>
-                    <option value="k_dpmpp_2m_sde">DPM++ 2M SDE</option>
-                    <option value="k_dpmpp_sde">DPM++ SDE</option>
-                </select>
-            </div>
-            <div class="st-chatu8-field">
-                <label for="Schedule">噪点表</label>
-                <select id="Schedule" class="st-chatu8-select">
-                    <option>native</option>
-                    <option>exponential</option>
-                    <option>polyexponential</option>
-                    <option>karras</option>
-                </select>
-            </div>
-            <div class="st-chatu8-field" id="novelai_v5_schedule_container" style="display: none;">
-                <label for="novelai_v5_schedule">V5 噪点表</label>
-                <select id="novelai_v5_schedule" class="st-chatu8-select">
-                    <option value="none">默认（不发送）</option>
-                    <option value="native">native</option>
-                    <option value="karras">karras</option>
-                    <option value="exponential">exponential</option>
-                    <option value="polyexponential">polyexponential</option>
-                </select>
-            </div>
-            <div class="st-chatu8-field">
-                <label for="nai3Scale">Prompt Guidance</label>
-                <input type="number" id="nai3Scale" class="st-chatu8-text-input">
-            </div>
-            <div class="st-chatu8-field">
-                <label for="cfg_rescale">Prompt Guidance Rescale</label>
-                <input type="number" id="cfg_rescale" class="st-chatu8-text-input">
-            </div>
-            <div class="st-chatu8-field">
-                <label for="AI_use_coords">AI 默认角色位置</label>
-                <div class="st-chatu8-toggle">
-                    <input id="AI_use_coords" type="checkbox"/>
-                    <span class="st-chatu8-slider"></span>
-                </div>
-            </div>
-            <div class="st-chatu8-field" id="st-chatu8-nai3-sm-field" style="display: none;">
-                <label for="sm">SMEA</label>
-                <div class="st-chatu8-toggle">
-                    <input id="sm" type="checkbox"/>
-                    <span class="st-chatu8-slider"></span>
-                </div>
-            </div>
-            <div class="st-chatu8-field" id="st-chatu8-nai3-dyn-field" style="display: none;">
-                <label for="dyn">SMEA DYN</label>
-                <div class="st-chatu8-toggle">
-                    <input id="dyn" type="checkbox"/>
-                    <span class="st-chatu8-slider"></span>
-                </div>
-            </div>
-            <div class="st-chatu8-field">
-                <label for="nai3Variety">多样性 (Variety)</label>
-                <div class="st-chatu8-toggle">
-                    <input id="nai3Variety" type="checkbox"/>
-                    <span class="st-chatu8-slider"></span>
-                </div>
-            </div>
-            <div class="st-chatu8-field" id="st-chatu8-nai3-deceisp-field" style="display: none;">
-                <label for="nai3Deceisp">减少伪影 (Decrisp)</label>
-                <div class="st-chatu8-toggle">
-                    <input id="nai3Deceisp" type="checkbox"/>
-                    <span class="st-chatu8-slider"></span>
-                </div>
-            </div>
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
     </div>
-    <div class="st-chatu8-settings-section">
-        <h4>生成参数</h4>
-        <div class="st-chatu8-grid">
-            <div class="st-chatu8-field">
-                <label for="novelai_size">预设尺寸</label>
-                <select id="novelai_size" class="st-chatu8-select">
-                    <option value="512x512">512x512 (1:1, 图标)</option>
-                    <option value="640x640">640x640 (1:1, 图标)</option>
-                    <option value="512x768">512x768 (2:3, 垂直)</option>
-                    <option value="768x512">768x512 (3:2, 水平)</option>
-                    <option value="1024x1024">1024x1024 (1:1, SDXL)</option>
-                    <option value="1216x832">1216x832 (19:13, 超高清)</option>
-                    <option value="832x1216">832x1216 (13:19, 超高清)</option>
-                </select>
-            </div>
-            <div class="st-chatu8-field">
-                <label for="novelai_width">宽度 (width)</label>
-                <input type="number" id="novelai_width" class="st-chatu8-text-input">
-            </div>
-            <div class="st-chatu8-field">
-                <label for="novelai_height">高度 (height)</label>
-                <input type="number" id="novelai_height" class="st-chatu8-text-input">
-            </div>
-            <div class="st-chatu8-field">
-                <label for="novelai_steps">生成步数 (steps)</label>
-                <input type="number" id="novelai_steps" class="st-chatu8-text-input">
-            </div>
-            <div class="st-chatu8-field">
-                <label for="novelai_seed">种子 (seed)</label>
-                <input type="number" id="novelai_seed" class="st-chatu8-text-input">
-            </div>
-        </div>
-    </div>
+    
     <div class="st-chatu8-settings-section" id="nai-vibe-transfer-section" style="display: none;">
         <h3>氛围参考图 (Vibe Transfer)</h3>
             <div class="st-chatu8-field">

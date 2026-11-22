@@ -6,6 +6,8 @@
  * Maintained fork: Toastoast (GitHub: 1249747637).
  * Modified 2026-11-22: isolate preset preview uploads, synchronize visual
  * preset renames, and route update/reinstall links to toast-maintained.
+ * Modified 2026-11-22: add per-style NovelAI model settings, API-only profiles,
+ * common preset sorting and favorites, with backward-compatible migration.
  * Original copyright and AFPL v9 license remain unchanged; see LICENSE.
  *
  * 【授权声明】
@@ -21,6 +23,8 @@
  * 尊重原创，从你我做起。
  * ====================================================
  */
+import { STYLE_MODEL_FIELDS, captureStyleModelSettings, ensureStyleModelPresets, getStyleModelSettings, saveStyleModelPreset, applyStyleModelPreset, buildStyleModelRuntime, NOVELAI_API_PROFILE_FIELDS, collectNovelAIApiSettings, applyNovelAIApiSettings } from "./style-model-settings.js";
+import { PRESET_SORT_OPTIONS, ensurePresetListState, getOrderedPresetNames, setPresetSortMode, togglePresetFavorite, isPresetFavorite, setPresetFavoritesOnly, registerPresetAdditions, renamePresetListEntry, removePresetListEntries } from "./preset-list-state.js";
 import { saveSettingsDebounced as saveSettingsDebounced2 } from "../../../../script.js";
 import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced as saveSettingsDebounced3 } from "../../../../script.js";
@@ -71875,30 +71879,7 @@ function refreshWorkflowSelectors(settings3) {
   console.log("[AI Config Helper] ComfyUI \u4E0E RunningHub \u5DE5\u4F5C\u6D41\u9009\u62E9\u5668\u53CA JSON \u6587\u672C\u6846\u5DF2\u5168\u9762\u5237\u65B0");
 }
 function refreshPromptPresetSelectors(settings3) {
-  if (!settings3.yushe) return;
-  const modes = [
-    { id: "yusheid", key: "yusheid_sd" },
-    { id: "yusheid_novelai", key: "yusheid_novelai" },
-    { id: "yusheid_comfyui", key: "yusheid_comfyui" }
-  ];
-  modes.forEach(({ id, key }) => {
-    const select = document.getElementById(id);
-    if (!select) return;
-    const currentValue = select.value;
-    select.innerHTML = "";
-    for (const presetName in settings3.yushe) {
-      const option = new Option(presetName, presetName);
-      option.title = presetName;
-      select.add(option);
-    }
-    const savedValue = settings3[key];
-    if (savedValue && settings3.yushe[savedValue]) {
-      select.value = savedValue;
-    } else if (settings3.yushe[currentValue]) {
-      select.value = currentValue;
-    }
-  });
-  console.log("[AI Config Helper] \u63D0\u793A\u8BCD\u9884\u8BBE\u9009\u62E9\u5668\u5DF2\u5237\u65B0");
+  refreshStylePresetSelectors(settings3);
 }
 function refreshPromptReplaceSelectors(settings3) {
   if (!settings3.prompt_replace) return;
@@ -84763,8 +84744,17 @@ function evictNovelAIUrlCache(rawOtherSite, endpointPath = "/ai/generate-image")
   const normalizedPath = endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`;
   workingNovelAIUrlCache.delete(`${rawOtherSite}|${normalizedPath}`);
 }
-function getNovelAICandidateUrls(endpointPath = "/ai/generate-image") {
-  const settings3 = extension_settings62[extensionName];
+function commitNovelAiCredentialId(requestSettings, id) {
+  requestSettings.novelaiApi_id = id;
+  const currentSettings = extension_settings62[extensionName];
+  const sameConnection = ["novelaiApi", "novelaisite", "novelaiOtherSite", "client"].every((key) => currentSettings[key] === requestSettings[key]);
+  if (!sameConnection) return false;
+  currentSettings.novelaiApi_id = id;
+  saveSettingsDebounced36();
+  return true;
+}
+function getNovelAICandidateUrls(endpointPath = "/ai/generate-image", runtimeSettings = null) {
+  const settings3 = runtimeSettings || extension_settings62[extensionName];
   if (settings3.novelaisite === "\u5B98\u7F51") {
     return {
       candidates: [`https://image.novelai.net${endpointPath}`],
@@ -84910,7 +84900,7 @@ async function postNovelAIWithFallback({
 }
 var activeAbortControllers = /* @__PURE__ */ new Map();
 var currentCloudQueueInfo = null;
-function cleanNovelAIPayload(payload, modelVersion) {
+function cleanNovelAIPayload(payload, modelVersion, runtimeSettings = null) {
   const isNAI3 = modelVersion === "nai-diffusion-3";
   const isNAI4or45 = modelVersion.includes("nai-diffusion-4");
   const cleanedPayload = { ...payload };
@@ -84930,7 +84920,7 @@ function cleanNovelAIPayload(payload, modelVersion) {
     delete cleanedPayload.reference_image_multiple;
     delete cleanedPayload.reference_information_extracted_multiple;
     delete cleanedPayload.skip_cfg_above_sigma;
-    const v5Schedule = extension_settings62[extensionName]?.novelai_v5_schedule;
+    const v5Schedule = (runtimeSettings || extension_settings62[extensionName])?.novelai_v5_schedule;
     if (!v5Schedule || v5Schedule === "none") {
       delete cleanedPayload.noise_schedule;
       addLog("[PayloadClean] NAI5 \u566A\u70B9\u8868\u8BBE\u4E3A\u4E0D\u53D1\u9001 (\u9ED8\u8BA4)\uFF0C\u5DF2\u6E05\u7406 noise_schedule");
@@ -85077,8 +85067,8 @@ function createLoggableNovelAIPayload(payload) {
   }
   return loggablePayload;
 }
-async function applyVibeGroupTransfer(preset_data) {
-  const settings3 = extension_settings62[extensionName];
+async function applyVibeGroupTransfer(preset_data, runtimeSettings = null) {
+  const settings3 = runtimeSettings || extension_settings62[extensionName];
   const vibeGroups = settings3.vibeGroups || {};
   const currentGroupId = getRandomVibeGroupId();
   if (!vibeGroups || Object.keys(vibeGroups).length === 0) {
@@ -85183,8 +85173,8 @@ async function applyVibeGroupTransfer(preset_data) {
     return;
   }
   const totalStrength = vibeDataArray.reduce((sum, v) => sum + v.strength, 0);
-  const shouldNormalize = extension_settings62[extensionName].normalizeRefStrength === "true";
-  const isNAI45Model = ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"].includes(extension_settings62[extensionName].novelaimode);
+  const shouldNormalize = settings3.normalizeRefStrength === "true";
+  const isNAI45Model = ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"].includes(settings3.novelaimode);
   let normalizedStrength;
   if (shouldNormalize && isNAI45Model) {
     normalizedStrength = vibeDataArray.map((v) => v.strength);
@@ -85468,6 +85458,8 @@ function uint8ArrayToBase642(uint8Array) {
   return btoa(binary);
 }
 async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt }) {
+  const _naiStyleId = getRandomYusheId("yusheid_novelai");
+  const _naiSettings = buildStyleModelRuntime(extension_settings62[extensionName], _naiStyleId, typeof defaultSettings === "undefined" ? {} : defaultSettings);
   clearLog();
   const taskId = taskQueue.addTask({
     name: (link || "").substring(0, 30) + (link && link.length > 30 ? "..." : ""),
@@ -85496,7 +85488,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
   if (!isPluginToastDisabled()) {
     toastr.info("\u{1F3A8} \u5DF2\u53D1\u8D77 NovelAI \u751F\u56FE\u8BF7\u6C42...");
   }
-  addLog(`\u5F00\u59CB NovelAI \u751F\u56FE\u6D41\u7A0B...\u5BA2\u6237\u7AEF\u4E3A${extension_settings62[extensionName].client}`);
+  addLog(`\u5F00\u59CB NovelAI \u751F\u56FE\u6D41\u7A0B...\u5BA2\u6237\u7AEF\u4E3A${_naiSettings.client}`);
   addLog(`\u8BF7\u6C42\u5C3A\u5BF8: \u5BBD\u5EA6 - ${Xwidth || "\u9ED8\u8BA4"}, \u9AD8\u5EA6 - ${Xheight || "\u9ED8\u8BA4"}`);
   let _nai_vibe_group_name;
   let _nai_gen_params = null;
@@ -85511,7 +85503,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
   if (typeof link === "string") {
     const match = link.match(sizeRegex);
     if (match) {
-      if (String(extension_settings62[extensionName].aiAutonomousResolution) !== "false") {
+      if (String(_naiSettings.aiAutonomousResolution) !== "false") {
         Xwidth = parseInt(match[1], 10);
         Xheight = parseInt(match[2], 10);
       }
@@ -85521,7 +85513,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
   if (typeof change === "string") {
     const match = change.match(sizeRegex);
     if (match) {
-      if (String(extension_settings62[extensionName].aiAutonomousResolution) !== "false") {
+      if (String(_naiSettings.aiAutonomousResolution) !== "false") {
         Xwidth = parseInt(match[1], 10);
         Xheight = parseInt(match[2], 10);
       }
@@ -85534,7 +85526,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
   link = await stripChineseAnnotations(link);
   change = await stripChineseAnnotations(change);
   console.log("\u6B63\u5728\u5904\u7406\u4E2D\u6587\u6CE8\u91CA\u5B8C\u6210...", link);
-  if (extension_settings62[extensionName].novelaiApi == "000000") {
+  if (_naiSettings.novelaiApi == "000000") {
     addLog("\u8BF7\u586B\u5199 NovelAI API Key");
     toastr.error("\u8BF7\u586B\u5199 NovelAI API Key");
     taskQueue.completeTask(taskId, false);
@@ -85544,26 +85536,26 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
   const promptForGeneration = change && change.trim() !== "" ? change : link;
   addLog(`\u7528\u4E8E\u751F\u6210\u7684Tag: ${promptForGeneration}`);
   let Divide_roles = false;
-  const modelMode = extension_settings62[extensionName].novelaimode || "";
+  const modelMode = _naiSettings.novelaimode || "";
   if (promptForGeneration.includes("Scene Composition") && (modelMode.includes("nai-diffusion-4") || modelMode.includes("nai-diffusion-5"))) {
     Divide_roles = true;
   }
   addLog(`\u662F\u5426\u542F\u7528\u5206\u89D2\u8272\u6A21\u5F0F (Divide_roles): ${Divide_roles}`);
-  let access_token = (extension_settings62[extensionName].novelaiApi || "").trim();
+  let access_token = (_naiSettings.novelaiApi || "").trim();
   let aqt = "";
-  if (extension_settings62[extensionName].AQT_novelai != "" && extension_settings62[extensionName].novelaimode == "nai-diffusion-4-curated-preview") {
+  if (_naiSettings.AQT_novelai != "" && _naiSettings.novelaimode == "nai-diffusion-4-curated-preview") {
     aqt = "rating:general, best quality, very aesthetic, absurdres";
-  } else if (extension_settings62[extensionName].AQT_novelai != "" && extension_settings62[extensionName].novelaimode == "nai-diffusion-4-full") {
+  } else if (_naiSettings.AQT_novelai != "" && _naiSettings.novelaimode == "nai-diffusion-4-full") {
     aqt = "no text, best quality, very aesthetic, absurdres";
-  } else if (extension_settings62[extensionName].AQT_novelai != "" && extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-full") {
+  } else if (_naiSettings.AQT_novelai != "" && _naiSettings.novelaimode == "nai-diffusion-4-5-full") {
     aqt = "very aesthetic, masterpiece, no text";
-  } else if (extension_settings62[extensionName].AQT_novelai != "" && extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-curated") {
+  } else if (_naiSettings.AQT_novelai != "" && _naiSettings.novelaimode == "nai-diffusion-4-5-curated") {
     aqt = "very aesthetic, masterpiece, no text, -0.8::feet::, rating:general";
-  } else if (extension_settings62[extensionName].AQT_novelai != "" && extension_settings62[extensionName].novelaimode == "nai-diffusion-5-full") {
+  } else if (_naiSettings.AQT_novelai != "" && _naiSettings.novelaimode == "nai-diffusion-5-full") {
     aqt = "very aesthetic, masterpiece, no text";
-  } else if (extension_settings62[extensionName].AQT_novelai != "" && extension_settings62[extensionName].novelaimode == "nai-diffusion-5-curated") {
+  } else if (_naiSettings.AQT_novelai != "" && _naiSettings.novelaimode == "nai-diffusion-5-curated") {
     aqt = "very aesthetic, masterpiece, no text";
-  } else if (extension_settings62[extensionName].AQT_novelai != "" && extension_settings62[extensionName].novelaimode == "nai-diffusion-3") {
+  } else if (_naiSettings.AQT_novelai != "" && _naiSettings.novelaimode == "nai-diffusion-3") {
     aqt = "best quality, amazing quality, very aesthetic, absurdres";
   }
   addLog(`AQT (\u8D28\u91CF\u6807\u7B7E) \u8BBE\u7F6E: ${aqt || "\u65E0"}`);
@@ -85578,7 +85570,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
     const charIds = getSortedCharacterIds(prompt_data);
     for (const i of charIds) {
       if (prompt_data[`Character ${i} coordinates`]) {
-        const isAiDefaultCoords2 = extension_settings62[extensionName].AI_use_coords === true || extension_settings62[extensionName].AI_use_coords === "true";
+        const isAiDefaultCoords2 = _naiSettings.AI_use_coords === true || _naiSettings.AI_use_coords === "true";
         if (isAiDefaultCoords2) {
           prompt_data[`Character ${i} coordinates`] = {};
         }
@@ -85592,7 +85584,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
     mainPrompt = deduplicateTags(promptForGeneration);
   }
   let { modifiedPrompt, insertions } = await prompt_replace(mainPrompt, other_prompt);
-  if (Divide_roles && extension_settings62[extensionName].client == "jiuguan") {
+  if (Divide_roles && _naiSettings.client == "jiuguan") {
     const charIds = getSortedCharacterIds(prompt_data);
     for (const i of charIds) {
       if (prompt_data[`Character ${i} Prompt`]) {
@@ -85600,14 +85592,14 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       }
     }
   }
-  const _nai_yushe_id = getRandomYusheId("yusheid_novelai");
-  if (!extension_settings62[extensionName].yushe || !extension_settings62[extensionName].yushe[_nai_yushe_id]) {
+  const _nai_yushe_id = _naiStyleId;
+  if (!_naiSettings.yushe || !_naiSettings.yushe[_nai_yushe_id]) {
     toastr.error("\u672A\u80FD\u627E\u5230\u6240\u9009\u7684\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u3002\u8BF7\u524D\u5F80\u63D2\u4EF6\u8BBE\u7F6E\u4E2D\u65B0\u5EFA\u6216\u9009\u62E9\u4E00\u4E2A\u56FA\u5B9A\u63D0\u793A\u8BCD\u3002", "NovelAI \u751F\u56FE\u9519\u8BEF");
     taskQueue.completeTask(taskId, false);
     currentTaskId = null;
     throw new Error("\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u672A\u914D\u7F6E");
   }
-  const _nai_preset = extension_settings62[extensionName].yushe[_nai_yushe_id];
+  const _nai_preset = _naiSettings.yushe[_nai_yushe_id];
   prompt2 = await zhengmian(
     _nai_preset.fixedPrompt,
     modifiedPrompt,
@@ -85615,61 +85607,61 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
     aqt,
     insertions
   );
-  if (isSettingTrue3(extension_settings62[extensionName].addFurryDataset)) {
+  if (isSettingTrue3(_naiSettings.addFurryDataset)) {
     prompt2 = "fur dataset, " + prompt2;
     addLog("\u6DFB\u52A0\u4E86 'fur dataset' \u5230\u63D0\u793A\u8BCD\u3002");
   }
   let UCP_novelai = "";
-  addLog(`\u6B63\u5728\u6839\u636E\u6A21\u578B (${extension_settings62[extensionName].novelaimode}) \u548C UCP \u9884\u8BBE (${extension_settings62[extensionName].UCP_novelai}) \u9009\u62E9\u8D1F\u9762\u63D0\u793A\u8BCD...`);
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-3" && extension_settings62[extensionName].UCP_novelai == "Heavy") {
+  addLog(`\u6B63\u5728\u6839\u636E\u6A21\u578B (${_naiSettings.novelaimode}) \u548C UCP \u9884\u8BBE (${_naiSettings.UCP_novelai}) \u9009\u62E9\u8D1F\u9762\u63D0\u793A\u8BCD...`);
+  if (_naiSettings.novelaimode == "nai-diffusion-3" && _naiSettings.UCP_novelai == "Heavy") {
     UCP_novelai = "lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract]";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-3" && extension_settings62[extensionName].UCP_novelai == "Light") {
+  if (_naiSettings.novelaimode == "nai-diffusion-3" && _naiSettings.UCP_novelai == "Light") {
     UCP_novelai = "lowres, jpeg artifacts, worst quality, watermark, blurry, very displeasing";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-3" && extension_settings62[extensionName].UCP_novelai == "Human Focus") {
+  if (_naiSettings.novelaimode == "nai-diffusion-3" && _naiSettings.UCP_novelai == "Human Focus") {
     UCP_novelai = "lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract], bad anatomy, bad hands, @_@, mismatched pupils, heart-shaped pupils, glowing eyes";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-full" && extension_settings62[extensionName].UCP_novelai == "Human Focus") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-full" && _naiSettings.UCP_novelai == "Human Focus") {
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-full" && extension_settings62[extensionName].UCP_novelai == "Heavy") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-full" && _naiSettings.UCP_novelai == "Heavy") {
     UCP_novelai = "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, multiple views, logo, too many watermarks, white blank page, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-full" && extension_settings62[extensionName].UCP_novelai == "Light") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-full" && _naiSettings.UCP_novelai == "Light") {
     UCP_novelai = "blurry, lowres, error, worst quality, bad quality, jpeg artifacts, very displeasing, white blank page, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-curated-preview" && extension_settings62[extensionName].UCP_novelai == "Human Focus") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-curated-preview" && _naiSettings.UCP_novelai == "Human Focus") {
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-curated-preview" && extension_settings62[extensionName].UCP_novelai == "Heavy") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-curated-preview" && _naiSettings.UCP_novelai == "Heavy") {
     UCP_novelai = "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, logo, dated, signature, multiple views, gigantic breasts, white blank page, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-curated-preview" && extension_settings62[extensionName].UCP_novelai == "Light") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-curated-preview" && _naiSettings.UCP_novelai == "Light") {
     UCP_novelai = "blurry, lowres, error, worst quality, bad quality, jpeg artifacts, very displeasing, logo, dated, signature, white blank page, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-curated" && extension_settings62[extensionName].UCP_novelai == "Human Focus") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-5-curated" && _naiSettings.UCP_novelai == "Human Focus") {
     UCP_novelai = "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, bad anatomy, bad hands, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, @_@, mismatched pupils, glowing eyes, negative space, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-curated" && extension_settings62[extensionName].UCP_novelai == "Heavy") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-5-curated" && _naiSettings.UCP_novelai == "Heavy") {
     UCP_novelai = "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, negative space, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-curated" && extension_settings62[extensionName].UCP_novelai == "Light") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-5-curated" && _naiSettings.UCP_novelai == "Light") {
     UCP_novelai = "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, negative space, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-full" && extension_settings62[extensionName].UCP_novelai == "Human Focus") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-5-full" && _naiSettings.UCP_novelai == "Human Focus") {
     UCP_novelai = "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-full" && extension_settings62[extensionName].UCP_novelai == "Heavy") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-5-full" && _naiSettings.UCP_novelai == "Heavy") {
     UCP_novelai = "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-full" && extension_settings62[extensionName].UCP_novelai == "Light") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-5-full" && _naiSettings.UCP_novelai == "Light") {
     UCP_novelai = "lowres, artistic error, scan artifacts, worst quality, bad quality, jpeg artifacts, multiple views, very displeasing, too many watermarks, negative space, blank page";
   }
-  if (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-full" && extension_settings62[extensionName].UCP_novelai == "Furry Focus") {
+  if (_naiSettings.novelaimode == "nai-diffusion-4-5-full" && _naiSettings.UCP_novelai == "Furry Focus") {
     UCP_novelai = "{worst quality}, distracting watermark, unfinished, bad quality, {widescreen}, upscale, {sequence}, {{grandfathered content}}, blurred foreground, chromatic aberration, sketch, everyone, [sketch background], simple, [flat colors], ych (character), outline, multiple scenes, [[horror (theme)]], comic";
   }
-  const isV5ModelUcp = extension_settings62[extensionName].novelaimode.includes("nai-diffusion-5");
+  const isV5ModelUcp = _naiSettings.novelaimode.includes("nai-diffusion-5");
   if (isV5ModelUcp) {
-    const ucpKey = String(extension_settings62[extensionName].UCP_novelai || "").toLowerCase().replace(/[\s_-]+/g, "");
+    const ucpKey = String(_naiSettings.UCP_novelai || "").toLowerCase().replace(/[\s_-]+/g, "");
     if (ucpKey === "humanfocus") {
       UCP_novelai = "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy";
     } else if (ucpKey === "heavy") {
@@ -85697,47 +85689,47 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
     addLog(`[\u667A\u7ED8\u59EC] \u6DFB\u52A0\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD: ${trimmedExtra}`);
     console.log("[NovelAI] \u5408\u5E76\u667A\u7ED8\u59EC\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD:", trimmedExtra);
   }
-  const isAiDefaultCoords = extension_settings62[extensionName].AI_use_coords === true || extension_settings62[extensionName].AI_use_coords === "true";
+  const isAiDefaultCoords = _naiSettings.AI_use_coords === true || _naiSettings.AI_use_coords === "true";
   let use_coords = !isAiDefaultCoords;
   let preset_data = {
-    "params_version": extension_settings62[extensionName].novelaimode.includes("nai-diffusion-5") ? 4 : 3,
-    "width": Number(Xwidth ? Xwidth : extension_settings62[extensionName].novelai_width),
-    "height": Number(Xheight ? Xheight : extension_settings62[extensionName].novelai_height),
-    "scale": Number(extension_settings62[extensionName].nai3Scale),
+    "params_version": _naiSettings.novelaimode.includes("nai-diffusion-5") ? 4 : 3,
+    "width": Number(Xwidth ? Xwidth : _naiSettings.novelai_width),
+    "height": Number(Xheight ? Xheight : _naiSettings.novelai_height),
+    "scale": Number(_naiSettings.nai3Scale),
     //提示词关联性
-    "sampler": extension_settings62[extensionName].novelai_sampler,
+    "sampler": _naiSettings.novelai_sampler,
     //"k_euler",//使用的采样器   "k_dpm_2"   "k_dpmpp_2m"    "ddim_v3"  "k_dpmpp_2s_ancestral"
-    "steps": Number(extension_settings62[extensionName].novelai_steps),
+    "steps": Number(_naiSettings.novelai_steps),
     //生成的步数
     "n_samples": 1,
     "ucPreset": 3,
     //预设
     "qualityToggle": true,
-    "sm": isSettingFalse(extension_settings62[extensionName].sm) ? false : true,
-    "sm_dyn": isSettingFalse(extension_settings62[extensionName].dyn) || isSettingFalse(extension_settings62[extensionName].sm) ? false : true,
-    "dynamic_thresholding": isSettingFalse(extension_settings62[extensionName].nai3Deceisp) ? false : true,
+    "sm": isSettingFalse(_naiSettings.sm) ? false : true,
+    "sm_dyn": isSettingFalse(_naiSettings.dyn) || isSettingFalse(_naiSettings.sm) ? false : true,
+    "dynamic_thresholding": isSettingFalse(_naiSettings.nai3Deceisp) ? false : true,
     "controlnet_strength": 1,
     "legacy": false,
     "legacy_uc": false,
     "add_original_image": true,
-    "cfg_rescale": Number(extension_settings62[extensionName].cfg_rescale),
+    "cfg_rescale": Number(_naiSettings.cfg_rescale),
     //关联性调整
-    "noise_schedule": extension_settings62[extensionName].Schedule,
-    "skip_cfg_above_sigma": isSettingFalse(extension_settings62[extensionName].nai3Variety) ? null : 19,
+    "noise_schedule": _naiSettings.Schedule,
+    "skip_cfg_above_sigma": isSettingFalse(_naiSettings.nai3Variety) ? null : 19,
     "legacy_v3_extend": false,
     "stream": "msgpack",
-    "params_version": extension_settings62[extensionName].novelaimode.includes("nai-diffusion-5") ? 4 : 3,
-    "seed": extension_settings62[extensionName].novelai_seed === "0" || extension_settings62[extensionName].novelai_seed === "" || extension_settings62[extensionName].novelai_seed === "-1" ? generateRandomSeed() : Number(extension_settings62[extensionName].novelai_seed),
+    "params_version": _naiSettings.novelaimode.includes("nai-diffusion-5") ? 4 : 3,
+    "seed": String(_naiSettings.novelai_seed) === "0" || String(_naiSettings.novelai_seed) === "" || String(_naiSettings.novelai_seed) === "-1" ? generateRandomSeed() : Number(_naiSettings.novelai_seed),
     //生成的种子，下面是固定的负面提示词
     "negative_prompt": negative_prompt,
     "reference_image_multiple": [],
     "reference_information_extracted_multiple": [],
     "reference_strength_multiple": [],
     "reference_image_multiple_cached": [],
-    "normalize_reference_strength_multiple": isSettingTrue3(extension_settings62[extensionName].normalizeRefStrength),
+    "normalize_reference_strength_multiple": isSettingTrue3(_naiSettings.normalizeRefStrength),
     "use_coords": use_coords
   };
-  if (extension_settings62[extensionName].novelaimode !== "nai-diffusion-3") {
+  if (_naiSettings.novelaimode !== "nai-diffusion-3") {
     if (Divide_roles) {
       const charIds = getSortedCharacterIds(prompt_data);
       for (const i of charIds) {
@@ -85764,25 +85756,25 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
           v4_prompt.caption.char_captions.push({ char_caption: prompt_data[`Character ${i} Prompt`], centers: [prompt_data[`Character ${i} coordinates`]] });
         }
       }
-      preset_data = { ...preset_data, characterPrompts, v4_prompt, v4_negative_prompt, add_original_image: true, skip_cfg_above_sigma: isSettingFalse(extension_settings62[extensionName].nai3Variety) ? null : 19.343056794463642 };
-      if (!isSettingFalse(extension_settings62[extensionName].nai3Variety) && extension_settings62[extensionName].novelaimode == "nai-diffusion-4-full") {
+      preset_data = { ...preset_data, characterPrompts, v4_prompt, v4_negative_prompt, add_original_image: true, skip_cfg_above_sigma: isSettingFalse(_naiSettings.nai3Variety) ? null : 19.343056794463642 };
+      if (!isSettingFalse(_naiSettings.nai3Variety) && _naiSettings.novelaimode == "nai-diffusion-4-full") {
         preset_data["skip_cfg_above_sigma"] = 19;
       }
-      if (!isSettingFalse(extension_settings62[extensionName].nai3Variety) && (extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-curated" || extension_settings62[extensionName].novelaimode == "nai-diffusion-4-5-full")) {
+      if (!isSettingFalse(_naiSettings.nai3Variety) && (_naiSettings.novelaimode == "nai-diffusion-4-5-curated" || _naiSettings.novelaimode == "nai-diffusion-4-5-full")) {
         preset_data["skip_cfg_above_sigma"] = 59.04722600415217;
       }
       preset_data = {
         "autoSmea": false,
-        "normalize_reference_strength_multiple": isSettingTrue3(extension_settings62[extensionName].normalizeRefStrength),
+        "normalize_reference_strength_multiple": isSettingTrue3(_naiSettings.normalizeRefStrength),
         "inpaintImg2ImgStrength": 1,
-        "params_version": extension_settings62[extensionName].novelaimode.includes("nai-diffusion-5") ? 4 : 3,
-        "width": Number(Xwidth ? Xwidth : extension_settings62[extensionName].novelai_width),
-        "height": Number(Xheight ? Xheight : extension_settings62[extensionName].novelai_height),
-        "scale": Number(extension_settings62[extensionName].nai3Scale),
+        "params_version": _naiSettings.novelaimode.includes("nai-diffusion-5") ? 4 : 3,
+        "width": Number(Xwidth ? Xwidth : _naiSettings.novelai_width),
+        "height": Number(Xheight ? Xheight : _naiSettings.novelai_height),
+        "scale": Number(_naiSettings.nai3Scale),
         //提示词关联性
-        "sampler": extension_settings62[extensionName].novelai_sampler,
+        "sampler": _naiSettings.novelai_sampler,
         //"k_euler",//使用的采样器   "k_dpm_2"   "k_dpmpp_2m"    "ddim_v3"  "k_dpmpp_2s_ancestral"
-        "steps": Number(extension_settings62[extensionName].novelai_steps),
+        "steps": Number(_naiSettings.novelai_steps),
         //生成的步数
         "n_samples": 1,
         "ucPreset": 3,
@@ -85793,12 +85785,12 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
         "legacy": false,
         "legacy_uc": false,
         "add_original_image": true,
-        "cfg_rescale": Number(extension_settings62[extensionName].cfg_rescale),
+        "cfg_rescale": Number(_naiSettings.cfg_rescale),
         //关联性调整
-        "noise_schedule": extension_settings62[extensionName].Schedule,
-        "skip_cfg_above_sigma": isSettingFalse(extension_settings62[extensionName].nai3Variety) ? null : 19.343056794463642,
+        "noise_schedule": _naiSettings.Schedule,
+        "skip_cfg_above_sigma": isSettingFalse(_naiSettings.nai3Variety) ? null : 19.343056794463642,
         "legacy_v3_extend": false,
-        "seed": extension_settings62[extensionName].novelai_seed === "0" || extension_settings62[extensionName].novelai_seed === "" || extension_settings62[extensionName].novelai_seed === "-1" ? generateRandomSeed() : Number(extension_settings62[extensionName].novelai_seed),
+        "seed": String(_naiSettings.novelai_seed) === "0" || String(_naiSettings.novelai_seed) === "" || String(_naiSettings.novelai_seed) === "-1" ? generateRandomSeed() : Number(_naiSettings.novelai_seed),
         //生成的种子，下面是固定的负面提示词
         "negative_prompt": negative_prompt,
         "reference_image_multiple": [],
@@ -85814,16 +85806,16 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
     } else {
       preset_data = {
         "autoSmea": false,
-        "normalize_reference_strength_multiple": isSettingTrue3(extension_settings62[extensionName].normalizeRefStrength),
+        "normalize_reference_strength_multiple": isSettingTrue3(_naiSettings.normalizeRefStrength),
         "inpaintImg2ImgStrength": 1,
-        "params_version": extension_settings62[extensionName].novelaimode.includes("nai-diffusion-5") ? 4 : 3,
-        "width": Number(Xwidth ? Xwidth : extension_settings62[extensionName].novelai_width),
-        "height": Number(Xheight ? Xheight : extension_settings62[extensionName].novelai_height),
-        "scale": Number(extension_settings62[extensionName].nai3Scale),
+        "params_version": _naiSettings.novelaimode.includes("nai-diffusion-5") ? 4 : 3,
+        "width": Number(Xwidth ? Xwidth : _naiSettings.novelai_width),
+        "height": Number(Xheight ? Xheight : _naiSettings.novelai_height),
+        "scale": Number(_naiSettings.nai3Scale),
         //提示词关联性
-        "sampler": extension_settings62[extensionName].novelai_sampler,
+        "sampler": _naiSettings.novelai_sampler,
         //"k_euler",//使用的采样器   "k_dpm_2"   "k_dpmpp_2m"    "ddim_v3"  "k_dpmpp_2s_ancestral"
-        "steps": Number(extension_settings62[extensionName].novelai_steps),
+        "steps": Number(_naiSettings.novelai_steps),
         //生成的步数
         "n_samples": 1,
         "ucPreset": 3,
@@ -85834,12 +85826,12 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
         "legacy": false,
         "legacy_uc": false,
         "add_original_image": true,
-        "cfg_rescale": Number(extension_settings62[extensionName].cfg_rescale),
+        "cfg_rescale": Number(_naiSettings.cfg_rescale),
         //关联性调整
-        "noise_schedule": extension_settings62[extensionName].Schedule,
-        "skip_cfg_above_sigma": isSettingFalse(extension_settings62[extensionName].nai3Variety) ? null : 19.343056794463642,
+        "noise_schedule": _naiSettings.Schedule,
+        "skip_cfg_above_sigma": isSettingFalse(_naiSettings.nai3Variety) ? null : 19.343056794463642,
         "legacy_v3_extend": false,
-        "seed": extension_settings62[extensionName].novelai_seed === "0" || extension_settings62[extensionName].novelai_seed === "" || extension_settings62[extensionName].novelai_seed === "-1" ? generateRandomSeed() : Number(extension_settings62[extensionName].novelai_seed),
+        "seed": String(_naiSettings.novelai_seed) === "0" || String(_naiSettings.novelai_seed) === "" || String(_naiSettings.novelai_seed) === "-1" ? generateRandomSeed() : Number(_naiSettings.novelai_seed),
         //生成的种子，下面是固定的负面提示词
         "negative_prompt": negative_prompt,
         "reference_image_multiple": [],
@@ -85867,37 +85859,37 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       };
     }
   }
-  if (extension_settings62[extensionName].novelaimode.includes("nai-diffusion-5")) {
+  if (_naiSettings.novelaimode.includes("nai-diffusion-5")) {
     let ucPresetInt = 0;
-    const ucpVal = String(extension_settings62[extensionName].UCP_novelai || "").toLowerCase().replace(/[\s_-]+/g, "");
+    const ucpVal = String(_naiSettings.UCP_novelai || "").toLowerCase().replace(/[\s_-]+/g, "");
     if (ucpVal === "heavy") ucPresetInt = 1;
     else if (ucpVal === "furryfocus") ucPresetInt = 2;
     else if (ucpVal === "light") ucPresetInt = 3;
     else if (ucpVal === "humanfocus") ucPresetInt = 4;
     preset_data.tag_hint_uc_preset = ucPresetInt;
     preset_data.tag_hint_qt = 1;
-    preset_data.straight_alpha = extension_settings62[extensionName].novelai_straight_alpha === true;
-    if (extension_settings62[extensionName].novelai_straight_alpha === true) {
+    preset_data.straight_alpha = isSettingTrue3(_naiSettings.novelai_straight_alpha);
+    if (isSettingTrue3(_naiSettings.novelai_straight_alpha)) {
       preset_data.tag_hint_transparent_background = true;
     }
   }
-  if (extension_settings62[extensionName].novelai_sampler == "k_euler_ancestral") {
+  if (_naiSettings.novelai_sampler == "k_euler_ancestral") {
     preset_data["deliberate_euler_ancestral_bug"] = false;
     preset_data["prefer_brownian"] = true;
   }
-  if (!isSettingFalse(extension_settings62[extensionName].nai3Variety)) {
-    preset_data["skip_cfg_above_sigma"] = calculateSkipCfgAboveSigma(preset_data.width, preset_data.height, extension_settings62[extensionName].novelaimode);
+  if (!isSettingFalse(_naiSettings.nai3Variety)) {
+    preset_data["skip_cfg_above_sigma"] = calculateSkipCfgAboveSigma(preset_data.width, preset_data.height, _naiSettings.novelaimode);
   }
-  const isNAI3 = extension_settings62[extensionName].novelaimode === "nai-diffusion-3";
-  const isNAI45 = ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"].includes(extension_settings62[extensionName].novelaimode);
+  const isNAI3 = _naiSettings.novelaimode === "nai-diffusion-3";
+  const isNAI45 = ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"].includes(_naiSettings.novelaimode);
   const isNAI4or45 = [
     "nai-diffusion-4-full",
     "nai-diffusion-4-curated-preview",
     "nai-diffusion-4-5-full",
     "nai-diffusion-4-5-curated"
-  ].includes(extension_settings62[extensionName].novelaimode);
-  const isBrowserClient = extension_settings62[extensionName].client !== "jiuguan";
-  if (isSettingTrue3(extension_settings62[extensionName].nai3CharRef) && isNAI45 && isBrowserClient) {
+  ].includes(_naiSettings.novelaimode);
+  const isBrowserClient = _naiSettings.client !== "jiuguan";
+  if (isSettingTrue3(_naiSettings.nai3CharRef) && isNAI45 && isBrowserClient) {
     try {
       await applyCharacterReferenceGroup(preset_data);
     } catch (error) {
@@ -85905,7 +85897,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       addLog(`[CharRef] \u9519\u8BEF: \u89D2\u8272\u53C2\u8003\u5E94\u7528\u5931\u8D25: ${error.message}`);
       toastr.error("\u89D2\u8272\u53C2\u8003\u5E94\u7528\u5931\u8D25\uFF0C\u5C06\u7EE7\u7EED\u8FDB\u884C\u56FE\u50CF\u751F\u6210", "\u89D2\u8272\u53C2\u8003");
     }
-  } else if (isSettingTrue3(extension_settings62[extensionName].nai3CharRef)) {
+  } else if (isSettingTrue3(_naiSettings.nai3CharRef)) {
     if (!isNAI45) {
       addLog("[CharRef] \u8DF3\u8FC7: \u5F53\u524D\u6A21\u578B\u4E0D\u652F\u6301\u89D2\u8272\u53C2\u8003 (\u4EC5\u652F\u6301 NAI4.5)");
       console.warn("[CharRef] Skipped: Current model does not support Character Reference (NAI4.5 only)");
@@ -85914,15 +85906,15 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       addLog("[CharRef] \u8DF3\u8FC7: \u9152\u9986\u7AEF\u4E0D\u652F\u6301\u89D2\u8272\u53C2\u8003");
       console.warn("[CharRef] Skipped: Tavern client does not support Character Reference");
     }
-  } else if (isSettingTrue3(extension_settings62[extensionName].enableVibeGroupTransfer) && isNAI4or45 && isBrowserClient) {
+  } else if (isSettingTrue3(_naiSettings.enableVibeGroupTransfer) && isNAI4or45 && isBrowserClient) {
     try {
-      _nai_vibe_group_name = await applyVibeGroupTransfer(preset_data);
+      _nai_vibe_group_name = await applyVibeGroupTransfer(preset_data, _naiSettings);
     } catch (error) {
       console.error("[VibeGroup] Unexpected error in Vibe Group Transfer:", error);
       addLog(`[VibeGroup] \u9519\u8BEF: Vibe \u7EC4\u6C1B\u56F4\u8F6C\u79FB\u5931\u8D25: ${error.message}`);
       toastr.error("Vibe \u7EC4\u6C1B\u56F4\u8F6C\u79FB\u5931\u8D25\uFF0C\u5C06\u7EE7\u7EED\u8FDB\u884C\u56FE\u50CF\u751F\u6210", "Vibe \u7EC4\u6C1B\u56F4\u8F6C\u79FB");
     }
-  } else if (isSettingTrue3(extension_settings62[extensionName].enableVibeGroupTransfer)) {
+  } else if (isSettingTrue3(_naiSettings.enableVibeGroupTransfer)) {
     if (!isNAI4or45) {
       addLog("[VibeGroup] \u8DF3\u8FC7: \u5F53\u524D\u6A21\u578B\u4E0D\u652F\u6301 Vibe \u7EC4\u6C1B\u56F4\u8F6C\u79FB (\u4EC5\u652F\u6301 NAI4/4.5)");
       console.warn("[VibeGroup] Skipped: Current model does not support Vibe Group Transfer (NAI4/4.5 only)");
@@ -85931,7 +85923,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       addLog("[VibeGroup] \u8DF3\u8FC7: \u9152\u9986\u7AEF\u4E0D\u652F\u6301 Vibe \u7EC4\u6C1B\u56F4\u8F6C\u79FB");
       console.warn("[VibeGroup] Skipped: Tavern client does not support Vibe Group Transfer");
     }
-  } else if (isSettingTrue3(extension_settings62[extensionName].nai3VibeTransfer) && isNAI3) {
+  } else if (isSettingTrue3(_naiSettings.nai3VibeTransfer) && isNAI3) {
     try {
       await applySingleVibeTransfer(preset_data);
     } catch (error) {
@@ -85939,20 +85931,20 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       addLog(`[SingleVibe] \u9519\u8BEF: \u5355\u4E2A Vibe \u8F6C\u79FB\u5931\u8D25: ${error.message}`);
       toastr.error("Vibe \u8F6C\u79FB\u5931\u8D25\uFF0C\u5C06\u7EE7\u7EED\u8FDB\u884C\u56FE\u50CF\u751F\u6210", "Vibe \u8F6C\u79FB");
     }
-  } else if (isSettingTrue3(extension_settings62[extensionName].nai3VibeTransfer)) {
+  } else if (isSettingTrue3(_naiSettings.nai3VibeTransfer)) {
     if (!isNAI3) {
       addLog("[SingleVibe] \u8DF3\u8FC7: \u5F53\u524D\u6A21\u578B\u4E0D\u652F\u6301\u5355\u4E2A Vibe \u8F6C\u79FB (\u4EC5\u652F\u6301 NAI3)");
       console.warn("[SingleVibe] Skipped: Current model does not support Single Vibe Transfer (NAI3 only)");
     }
   }
   addLog("[Payload] \u5F00\u59CB\u6E05\u7406\u548C\u9A8C\u8BC1 payload...");
-  const baseModel = extension_settings62[extensionName].novelaimode;
-  const isMediumEffort = baseModel === "nai-diffusion-5-full" && extension_settings62[extensionName].novelai_v5_effort === "medium";
+  const baseModel = _naiSettings.novelaimode;
+  const isMediumEffort = baseModel === "nai-diffusion-5-full" && _naiSettings.novelai_v5_effort === "medium";
   const actualModel = isMediumEffort ? "nai-diffusion-5-full-medium" : baseModel;
   if (isMediumEffort) {
     addLog("[NovelAI] \u68C0\u6D4B\u5230\u542F\u7528 V5 Full Medium \u8D28\u91CF/\u7B97\u529B\u6863\u4F4D\uFF0C\u5207\u6362\u4E3A nai-diffusion-5-full-medium\uFF08\u9501\u5B9A 14 \u6B65\uFF09");
   }
-  preset_data = cleanNovelAIPayload(preset_data, actualModel);
+  preset_data = cleanNovelAIPayload(preset_data, actualModel, _naiSettings);
   try {
     validateNovelAIPayload(preset_data, actualModel);
   } catch (validationError) {
@@ -85967,11 +85959,11 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
     model: actualModel,
     effort: isMediumEffort ? "medium" : "high",
     yushe: _nai_yushe_id,
-    yusheRandom: isSettingTrue3(extension_settings62[extensionName].randomYushe),
-    promptReplaceId: extension_settings62[extensionName].prompt_replace_id,
+    yusheRandom: isSettingTrue3(_naiSettings.randomYushe),
+    promptReplaceId: _naiSettings.prompt_replace_id,
     vibeGroup: _nai_vibe_group_name,
-    vibeGroupRandom: isSettingTrue3(extension_settings62[extensionName].randomVibeGroup),
-    charRefGroup: isSettingTrue3(extension_settings62[extensionName].nai3CharRef) ? extension_settings62[extensionName].charRefGroupId : void 0,
+    vibeGroupRandom: isSettingTrue3(_naiSettings.randomVibeGroup),
+    charRefGroup: isSettingTrue3(_naiSettings.nai3CharRef) ? _naiSettings.charRefGroupId : void 0,
     resolvedPrompt: prompt2,
     negativePrompt: payload.negative_prompt,
     width: payload.width,
@@ -85983,15 +85975,15 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
     cfgScale: payload.scale
   });
   const loggablePayload = createLoggableNovelAIPayload(payload);
-  if (extension_settings62[extensionName].client != "jiuguan") {
+  if (_naiSettings.client != "jiuguan") {
     addLog(`\u6700\u7EC8\u751F\u56FE\u53C2\u6570 (payload): ${JSON.stringify(loggablePayload, null, 2)}`);
   }
-  if (extension_settings62[extensionName].novelaisite != "\u5B98\u7F51") {
-    if (extension_settings62[extensionName].client == "jiuguan") {
+  if (_naiSettings.novelaisite != "\u5B98\u7F51") {
+    if (_naiSettings.client == "jiuguan") {
       taskQueue.completeTask(taskId, false);
       throw new Error("\u9152\u9986\u7AEF\u4E0D\u652F\u6301\u81EA\u5B9A\u4E49\u7AD9\u70B9\uFF01");
     }
-    let otherSite = normalizeNovelAIOtherSiteUrl(extension_settings62[extensionName].novelaiOtherSite);
+    let otherSite = normalizeNovelAIOtherSiteUrl(_naiSettings.novelaiOtherSite);
     if (!otherSite) {
       taskQueue.completeTask(taskId, false);
       throw new Error("\u5DF2\u9009\u62E9\u7B2C\u4E09\u65B9\u7AD9\u70B9\uFF0C\u4F46\u672A\u586B\u5199 novelaiOtherSite \u5730\u5740");
@@ -86003,7 +85995,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       addLog("\u6B63\u5F0F\u8BF7\u6C42\u524D\u68C0\u6D4B\u5230\u4EFB\u52A1\u5DF2\u88AB\u53D6\u6D88\u3002");
       throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
     }
-    if (isSettingTrue3(extension_settings62[extensionName].enableCloudQueue)) {
+    if (isSettingTrue3(_naiSettings.enableCloudQueue)) {
       const keyHash = await hashKey(access_token);
       const userId = getUserId();
       try {
@@ -86020,24 +86012,24 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       }
     }
     resetGenerationTimeout(NOVELAI_TIMEOUT_SECONDS);
-    if (extension_settings62[extensionName].client == "jiuguan") {
+    if (_naiSettings.client == "jiuguan") {
       const read = await fetch("/api/secrets/read", {
         method: "POST",
         headers: getRequestHeaders(window.token),
         body: JSON.stringify({})
       });
       if (read.ok) {
-        if (extension_settings62[extensionName].novelaiApi_id != "") {
+        if (_naiSettings.novelaiApi_id != "") {
           await fetch("/api/secrets/delete", {
             method: "POST",
             headers: getRequestHeaders(window.token),
-            body: JSON.stringify({ id: extension_settings62[extensionName].novelaiApi_id, key: "api_key_novel" })
+            body: JSON.stringify({ id: _naiSettings.novelaiApi_id, key: "api_key_novel" })
           });
         }
         const reSecret = await fetch("/api/secrets/write", {
           method: "POST",
           headers: getRequestHeaders(window.token),
-          body: JSON.stringify({ key: "api_key_novel", value: extension_settings62[extensionName].novelaiApi, label: "\u63D2\u4EF6\u8BBE\u7F6E\u7684api_key_novel" })
+          body: JSON.stringify({ key: "api_key_novel", value: _naiSettings.novelaiApi, label: "\u63D2\u4EF6\u8BBE\u7F6E\u7684api_key_novel" })
         });
         if (!reSecret.ok) {
           const errorText = await reSecret.text();
@@ -86047,8 +86039,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
         try {
           const novelid = JSON.parse(responseText);
           if (novelid && novelid.id) {
-            extension_settings62[extensionName].novelaiApi_id = novelid.id;
-            saveSettingsDebounced36();
+            commitNovelAiCredentialId(_naiSettings, novelid.id);
             await fetch("/api/secrets/rotate", {
               method: "POST",
               headers: getRequestHeaders(window.token),
@@ -86088,7 +86079,7 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       const Authorization = "Bearer " + access_token;
       let data11 = { "input": prompt2, "model": actualModel, "action": "generate", "parameters": payload, "use_new_shared_trial": true };
       console.log("data11:", data11);
-      const { candidates, rawOtherSite } = getNovelAICandidateUrls("/ai/generate-image");
+      const { candidates, rawOtherSite } = getNovelAICandidateUrls("/ai/generate-image", _naiSettings);
       const response = await postNovelAIWithFallback({
         candidates,
         rawOtherSite,
@@ -86121,13 +86112,13 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
     if (!isPluginToastDisabled()) {
       toastr.success(`\u2705 NovelAI \u751F\u56FE\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
     }
-    if (String(extension_settings62[extensionName].convertToJpegStorage) === "true") {
+    if (String(_naiSettings.convertToJpegStorage) === "true") {
       imageUrl = await convertImageToJpeg(imageUrl);
     }
     return { image: imageUrl, change: change_ || "", genParams: _nai_gen_params };
   } catch (error) {
-    if (extension_settings62[extensionName].novelaisite !== "\u5B98\u7F51") {
-      const otherSite = normalizeNovelAIOtherSiteUrl(extension_settings62[extensionName].novelaiOtherSite);
+    if (_naiSettings.novelaisite !== "\u5B98\u7F51") {
+      const otherSite = normalizeNovelAIOtherSiteUrl(_naiSettings.novelaiOtherSite);
       evictNovelAIUrlCache(otherSite, "/ai/generate-image");
     }
     isTaskAborted = error.name === "AbortError" || error.message === "\u4EFB\u52A1\u5DF2\u53D6\u6D88" || abortController.signal.aborted || error.message?.includes("\u8D85\u65F6");
@@ -86153,19 +86144,21 @@ async function generateNovelAIImage({ prompt: link, width: Xwidth, height: Xheig
       currentCloudQueueInfo = null;
     }
     if (lockAcquired) {
-      const interval = Math.max(0, parseInt(extension_settings62[extensionName]?.imageGenInterval, 10) || 0);
+      const interval = Math.max(0, parseInt(_naiSettings?.imageGenInterval, 10) || 0);
       releaseSerialLock(taskId, interval);
     }
   }
 }
 async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xheight, change }) {
+  const _naiStyleId = extension_settings62[extensionName].yusheid_novelai;
+  const _naiSettings = buildStyleModelRuntime(extension_settings62[extensionName], _naiStyleId, typeof defaultSettings === "undefined" ? {} : defaultSettings);
   clearLog();
   let _inpaint_gen_params = null;
   const sizeRegex = /,?\s*(\d{2,4})x(\d{2,4})(?=[;\s]*$)/i;
   if (typeof link === "string") {
     const match = link.match(sizeRegex);
     if (match) {
-      if (String(extension_settings62[extensionName].aiAutonomousResolution) !== "false") {
+      if (String(_naiSettings.aiAutonomousResolution) !== "false") {
         Xwidth = parseInt(match[1], 10);
         Xheight = parseInt(match[2], 10);
       }
@@ -86175,7 +86168,7 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
   if (typeof change === "string") {
     const match = change.match(sizeRegex);
     if (match) {
-      if (String(extension_settings62[extensionName].aiAutonomousResolution) !== "false") {
+      if (String(_naiSettings.aiAutonomousResolution) !== "false") {
         Xwidth = parseInt(match[1], 10);
         Xheight = parseInt(match[2], 10);
       }
@@ -86234,20 +86227,20 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
     addLog(`[NovelAI Inpaint] \u63D0\u793A\u8BCD: ${inpaintPrompt}`);
     addLog(`[NovelAI Inpaint] \u8D1F\u9762\u63D0\u793A\u8BCD: ${negativePrompt}`);
     addLog(`[NovelAI Inpaint] \u5F3A\u5EA6: ${strength}`);
-    const access_token = (extension_settings62[extensionName].novelaiApi || "").trim();
+    const access_token = (_naiSettings.novelaiApi || "").trim();
     if (!access_token || access_token === "000000") {
       throw new Error("\u8BF7\u586B\u5199 NovelAI API Key");
     }
-    const imgWidth = Number(window.novelaiInpaintWidth) || Number(Xwidth) || Number(extension_settings62[extensionName].novelai_width) || 1024;
-    const imgHeight = Number(window.novelaiInpaintHeight) || Number(Xheight) || Number(extension_settings62[extensionName].novelai_height) || 1024;
+    const imgWidth = Number(window.novelaiInpaintWidth) || Number(Xwidth) || Number(_naiSettings.novelai_width) || 1024;
+    const imgHeight = Number(window.novelaiInpaintHeight) || Number(Xheight) || Number(_naiSettings.novelai_height) || 1024;
     addLog(`[NovelAI Inpaint] \u56FE\u50CF\u5C3A\u5BF8: ${imgWidth}x${imgHeight}`);
-    const seed = extension_settings62[extensionName].novelai_seed === "0" || extension_settings62[extensionName].novelai_seed === "" || extension_settings62[extensionName].novelai_seed === "-1" ? generateRandomSeed() : Number(extension_settings62[extensionName].novelai_seed);
-    const baseMode = extension_settings62[extensionName].novelaimode || "";
+    const seed = String(_naiSettings.novelai_seed) === "0" || String(_naiSettings.novelai_seed) === "" || String(_naiSettings.novelai_seed) === "-1" ? generateRandomSeed() : Number(_naiSettings.novelai_seed);
+    const baseMode = _naiSettings.novelaimode || "";
     let inpaintModel = "nai-diffusion-4-5-curated-inpainting";
-    let inpaintSteps = Number(extension_settings62[extensionName].novelai_steps) || 28;
-    let inpaintSampler = extension_settings62[extensionName].novelai_sampler || "k_euler_ancestral";
+    let inpaintSteps = Number(_naiSettings.novelai_steps) || 28;
+    let inpaintSampler = _naiSettings.novelai_sampler || "k_euler_ancestral";
     if (baseMode === "nai-diffusion-5-full") {
-      if (extension_settings62[extensionName].novelai_v5_effort === "medium") {
+      if (_naiSettings.novelai_v5_effort === "medium") {
         inpaintModel = "nai-diffusion-5-full-medium-inpainting";
         inpaintSteps = 14;
         inpaintSampler = "k_euler_ancestral";
@@ -86262,14 +86255,14 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
       "parameters": {
         "width": imgWidth,
         "height": imgHeight,
-        "scale": Number(extension_settings62[extensionName].nai3Scale) || 5,
+        "scale": Number(_naiSettings.nai3Scale) || 5,
         "sampler": inpaintSampler,
         "steps": inpaintSteps,
         "seed": seed,
         "n_samples": 1,
         "image": imageBase64,
         "mask": maskBase64,
-        "params_version": extension_settings62[extensionName].novelaimode.includes("nai-diffusion-5") ? 4 : 3,
+        "params_version": _naiSettings.novelaimode.includes("nai-diffusion-5") ? 4 : 3,
         "prefer_brownian": true,
         "autoSmea": false,
         "strength": 0.7,
@@ -86284,8 +86277,8 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
         "legacy": false,
         "legacy_uc": false,
         "legacy_v3_extend": false,
-        "normalize_reference_strength_multiple": isSettingTrue3(extension_settings62[extensionName].normalizeRefStrength),
-        "noise_schedule": extension_settings62[extensionName].Schedule || "karras",
+        "normalize_reference_strength_multiple": isSettingTrue3(_naiSettings.normalizeRefStrength),
+        "noise_schedule": _naiSettings.Schedule || "karras",
         "qualityToggle": true,
         "skip_cfg_above_sigma": 19,
         "ucPreset": 0,
@@ -86315,7 +86308,7 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
       }
     };
     if (inpaintModel.includes("nai-diffusion-5")) {
-      const v5Schedule = extension_settings62[extensionName]?.novelai_v5_schedule;
+      const v5Schedule = _naiSettings?.novelai_v5_schedule;
       if (!v5Schedule || v5Schedule === "none") {
         delete payload.parameters.noise_schedule;
         addLog("[NovelAI Inpaint] NAI5 \u566A\u70B9\u8868\u8BBE\u4E3A\u4E0D\u53D1\u9001 (\u9ED8\u8BA4)\uFF0C\u5DF2\u6E05\u7406 noise_schedule");
@@ -86327,7 +86320,7 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
     addLog(`[NovelAI Inpaint] \u8BF7\u6C42\u53C2\u6570\u5DF2\u6784\u5EFA\u5B8C\u6210`);
     _inpaint_gen_params = buildGenParams("NovelAI \u5C40\u90E8\u91CD\u7ED8", {
       model: payload.model,
-      promptReplaceId: extension_settings62[extensionName].prompt_replace_id,
+      promptReplaceId: _naiSettings.prompt_replace_id,
       resolvedPrompt: inpaintPrompt,
       negativePrompt,
       width: payload.parameters.width,
@@ -86342,7 +86335,7 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
       addLog("[NovelAI Inpaint] \u6B63\u5F0F\u5F00\u59CB\u524D\u4EFB\u52A1\u5DF2\u88AB\u53D6\u6D88");
       throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
     }
-    if (isSettingTrue3(extension_settings62[extensionName].enableCloudQueue)) {
+    if (isSettingTrue3(_naiSettings.enableCloudQueue)) {
       const keyHash = await hashKey(access_token);
       const userId = getUserId();
       try {
@@ -86359,11 +86352,11 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
       }
     }
     resetInpaintTimeout(NOVELAI_TIMEOUT_SECONDS);
-    if (extension_settings62[extensionName].novelaisite != "\u5B98\u7F51" && extension_settings62[extensionName].client == "jiuguan") {
+    if (_naiSettings.novelaisite != "\u5B98\u7F51" && _naiSettings.client == "jiuguan") {
       throw new Error("\u9152\u9986\u7AEF\u4E0D\u652F\u6301\u81EA\u5B9A\u4E49\u7AD9\u70B9\u7684\u5C40\u90E8\u91CD\u7ED8\uFF01");
     }
     const Authorization = "Bearer " + access_token;
-    const { candidates, rawOtherSite } = getNovelAICandidateUrls("/ai/generate-image");
+    const { candidates, rawOtherSite } = getNovelAICandidateUrls("/ai/generate-image", _naiSettings);
     addLog("[NovelAI Inpaint] \u6B63\u5728\u53D1\u9001\u8BF7\u6C42\u5230 NovelAI API...");
     const response = await postNovelAIWithFallback({
       candidates,
@@ -86398,14 +86391,14 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
     if (!isPluginToastDisabled()) {
       toastr.success(`\u2705 NovelAI \u5C40\u90E8\u91CD\u7ED8\u5B8C\u6210\uFF0C\u8017\u65F6 ${inpaintDuration} \u79D2`);
     }
-    if (String(extension_settings62[extensionName].convertToJpegStorage) === "true") {
+    if (String(_naiSettings.convertToJpegStorage) === "true") {
       imageUrl = await convertImageToJpeg(imageUrl);
     }
     addLog(`[NovelAI Inpaint] \u5C40\u90E8\u91CD\u7ED8\u5B8C\u6210 (\u8017\u65F6 ${inpaintDuration} \u79D2)\uFF01`);
     return { image: imageUrl, change: change || "", genParams: _inpaint_gen_params };
   } catch (error) {
-    if (extension_settings62[extensionName].novelaisite !== "\u5B98\u7F51") {
-      const otherSite = normalizeNovelAIOtherSiteUrl(extension_settings62[extensionName].novelaiOtherSite);
+    if (_naiSettings.novelaisite !== "\u5B98\u7F51") {
+      const otherSite = normalizeNovelAIOtherSiteUrl(_naiSettings.novelaiOtherSite);
       evictNovelAIUrlCache(otherSite, "/ai/generate-image");
     }
     isTaskAborted = error.name === "AbortError" || error.message === "\u4EFB\u52A1\u5DF2\u53D6\u6D88" || abortController.signal.aborted || error.message?.includes("\u8D85\u65F6");
@@ -86431,7 +86424,7 @@ async function generateNovelAIInpaint({ prompt: link, width: Xwidth, height: Xhe
       currentCloudQueueInfo = null;
     }
     if (lockAcquired) {
-      const interval = Math.max(0, parseInt(extension_settings62[extensionName]?.imageGenInterval, 10) || 0);
+      const interval = Math.max(0, parseInt(_naiSettings?.imageGenInterval, 10) || 0);
       releaseSerialLock(taskId, interval);
     }
     delete window.novelaiInpaintImage;
@@ -89033,6 +89026,9 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
   const parent = document.getElementById("st-chatu8-settings") || document.body;
   const backdrop = document.createElement("div");
   backdrop.className = "st-chatu8-workflow-viz-backdrop";
+  ensurePresetListState(settings3);
+  let renderVersion = 0;
+  let closed = false;
   const selectedForDelete = /* @__PURE__ */ new Set();
   let isBulkDeleteMode = false;
   let currentPage = 1;
@@ -89045,7 +89041,7 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
   backdrop.innerHTML = `
         <div class="st-chatu8-workflow-viz-dialog st-chatu8-preset-viz-dialog-wrapper">
             <div class="st-chatu8-workflow-viz-header">
-                <h3>\u9009\u62E9\u63D0\u793A\u8BCD\u9884\u8BBE</h3>
+                <h3>选择画风及模型预设</h3>
                 <span class="st-chatu8-workflow-viz-close">&times;</span>
             </div>
             <div class="st-chatu8-workflow-viz-toolbar" style="justify-content: space-between; align-items: center; gap: 15px;">
@@ -89106,11 +89102,48 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
         </div>
     `;
   function closeDialog() {
+    closed = true;
+    renderVersion++;
+    document.removeEventListener("st-chatu8-style-presets-changed", onStyleListChanged);
     if (groupDropdown) groupDropdown.destroy();
     if (groupManageBtn) groupManageBtn.destroy();
     window.removeEventListener("resize", handleResize);
     if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
   }
+  const orderControls = document.createElement("div");
+  orderControls.className = "st-chatu8-preset-list-controls";
+  orderControls.innerHTML = '<select class="st-chatu8-viz-preset-sort" aria-label="画风预设排序"></select><label class="st-chatu8-favorites-filter"><input type="checkbox" class="st-chatu8-viz-favorites-only">只看收藏</label>';
+  backdrop.querySelector(".st-chatu8-workflow-viz-toolbar").insertAdjacentElement("afterend", orderControls);
+  const orderSelect = orderControls.querySelector("select");
+  for (const entry of PRESET_SORT_OPTIONS) orderSelect.add(new Option(entry.label, entry.value));
+  const favoriteOnly = orderControls.querySelector("input");
+  orderSelect.value = settings3.presetListState.sortMode;
+  favoriteOnly.checked = settings3.presetListState.favoritesOnly;
+  orderSelect.onchange = () => {
+    setPresetSortMode(settings3, orderSelect.value);
+    notifyStylePresetListChanged(settings3);
+    saveSettingsDebounced40();
+  };
+  favoriteOnly.onchange = () => {
+    setPresetFavoritesOnly(settings3, favoriteOnly.checked);
+    notifyStylePresetListChanged(settings3);
+    saveSettingsDebounced40();
+  };
+  const onStyleListChanged = (event) => {
+    if (closed || !backdrop.isConnected) return;
+    currentPage = 1;
+    if (event.detail?.added) {
+      searchQuery = "";
+      searchInput.value = "";
+      currentGroupId = null;
+    }
+    orderSelect.value = settings3.presetListState.sortMode;
+    favoriteOnly.checked = settings3.presetListState.favoritesOnly;
+    updateFilteredPresets();
+    renderCurrentPage();
+    if (groupDropdown) groupDropdown.refresh();
+  };
+  document.addEventListener("st-chatu8-style-presets-changed", onStyleListChanged);
   const closeBtn = backdrop.querySelector(".st-chatu8-workflow-viz-close");
   closeBtn.onclick = () => closeDialog();
   backdrop.onclick = (e) => {
@@ -89198,6 +89231,7 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
     if (confirm(`\u786E\u5B9A\u8981\u5220\u9664\u9009\u4E2D\u7684 ${selectedForDelete.size} \u4E2A\u9884\u8BBE\u5417\uFF1F\u6B64\u64CD\u4F5C\u4E0D\u53EF\u6062\u590D\uFF01`)) {
       let deletedCount = 0;
       for (const presetName of selectedForDelete) {
+        if (presetName === "默认") continue;
         const preset = settings3.yushe[presetName];
         if (preset && preset.previewImageId) {
           try {
@@ -89208,6 +89242,8 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
         }
         if (settings3.yushe[presetName]) {
           delete settings3.yushe[presetName];
+          removePresetListEntries(settings3, [presetName]);
+          resetDeletedStylePresetSelections(settings3, presetName);
           deletedCount++;
         }
         removeMember(settings3, GROUP_SCOPE, presetName);
@@ -89217,6 +89253,7 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
           settings3[yusheIdKey2] = "\u9ED8\u8BA4";
         }
       }
+      notifyStylePresetListChanged(settings3);
       await saveSettingsDebounced40();
       alert(`\u6210\u529F\u5220\u9664 ${deletedCount} \u4E2A\u9884\u8BBE\u3002`);
       exitBulkDeleteMode();
@@ -89233,8 +89270,7 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
   const suffix = getSuffix(mode);
   const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
   const currentPresetId = settings3[yusheIdKey];
-  const presets = settings3.yushe || {};
-  const getAllPresetNames = () => Object.keys(presets);
+  const getAllPresetNames = () => getOrderedPresetNames(settings3);
   groupDropdown = createGroupDropdown({
     container: toggleBtn.parentNode,
     insertBefore: bulkDeleteBtn,
@@ -89273,7 +89309,7 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
   const gridColumnsSelect = backdrop.querySelector(".st-chatu8-grid-columns-select");
   function updateFilteredPresets() {
     const names = filterByGroup(getAllPresetNames(), settings3, GROUP_SCOPE, currentGroupId);
-    filteredPresets = filterPresetsBySearch(names, presets, GROUP_SCOPE, searchQuery);
+    filteredPresets = filterPresetsBySearch(names, settings3.yushe || {}, GROUP_SCOPE, searchQuery);
   }
   function updateGridLayout() {
     if (window.innerWidth > 1400) {
@@ -89298,16 +89334,19 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
     paginationNext.style.cursor = currentPage >= totalPages ? "not-allowed" : "pointer";
   }
   async function renderCurrentPage() {
+    const version = ++renderVersion;
     grid.style.opacity = "0";
     grid.style.transform = "translateY(10px)";
     await new Promise((resolve) => setTimeout(resolve, 150));
-    grid.innerHTML = "";
+    if (closed || version !== renderVersion) return;
+    const fragment = document.createDocumentFragment();
     const startIndex = (currentPage - 1) * pageSize;
     const endIndex = startIndex + pageSize;
     const pagePresets = filteredPresets.slice(startIndex, endIndex);
     for (const presetName of pagePresets) {
-      const preset = presets[presetName];
-      const card = await createPresetCard2(presetName, preset, presetName === currentPresetId, settings3, mode, handleCardClick, {
+      const preset = settings3.yushe?.[presetName];
+      if (!preset) continue;
+      const card = await createPresetCard2(presetName, preset, presetName === settings3[yusheIdKey], settings3, mode, handleCardClick, {
         // 归属变了只刷新下拉框计数，网格不动，免得卡片在用户脚下重排
         onGroupChanged: () => {
           if (groupDropdown) groupDropdown.refresh();
@@ -89320,8 +89359,17 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
         },
         onCloseDialog: closeDialog
       });
+      if (closed || version !== renderVersion) return;
       card.dataset.presetName = presetName;
-      grid.appendChild(card);
+      fragment.appendChild(card);
+    }
+    if (closed || version !== renderVersion) return;
+    grid.replaceChildren(fragment);
+    if (!pagePresets.length) {
+      const empty = document.createElement("div");
+      empty.className = "st-chatu8-preset-empty";
+      empty.textContent = settings3.presetListState.favoritesOnly ? "暂无收藏的画风及模型预设" : "没有匹配的预设";
+      grid.appendChild(empty);
     }
     syncCardSelection();
     bulkControls.refresh();
@@ -89332,6 +89380,7 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
   }
   const handleCardClick = (name, cardElement) => {
     if (isBulkDeleteMode) {
+      if (name === "默认") return;
       if (selectedForDelete.has(name)) {
         selectedForDelete.delete(name);
         cardElement.classList.remove("selected-for-delete");
@@ -89382,6 +89431,21 @@ async function createPresetCard2(presetName, preset, isSelected, settings3, mode
   const { onGroupChanged, onRefreshGrid, onCloseDialog } = hooks;
   const card = document.createElement("div");
   card.className = "st-chatu8-preset-card" + (isSelected ? " selected" : "");
+  const favoriteButton = document.createElement("button");
+  favoriteButton.type = "button";
+  favoriteButton.className = "st-chatu8-preset-favorite";
+  const favoriteActive = isPresetFavorite(settings3, presetName);
+  favoriteButton.textContent = favoriteActive ? "★" : "☆";
+  favoriteButton.setAttribute("aria-pressed", String(favoriteActive));
+  favoriteButton.title = favoriteActive ? "取消收藏 " + presetName : "收藏 " + presetName;
+  favoriteButton.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    togglePresetFavorite(settings3, presetName);
+    notifyStylePresetListChanged(settings3);
+    saveSettingsDebounced40();
+  };
+  card.appendChild(favoriteButton);
   const imageContainer = document.createElement("div");
   imageContainer.className = "st-chatu8-preset-card-image";
   const previewImageId = preset.previewImageId;
@@ -89442,6 +89506,7 @@ async function createPresetCard2(presetName, preset, isSelected, settings3, mode
   renameBtn.innerHTML = '<i class="fa-solid fa-pen-nib"></i>';
   renameBtn.onclick = (e) => {
     e.stopPropagation();
+    if (presetName === "默认") { alert("默认预设不能重命名"); return; }
     const newName = prompt(`\u8BF7\u8F93\u5165\u65B0\u7684\u9884\u8BBE\u540D\u79F0 (Current: ${presetName}):`, presetName);
     if (newName && newName !== presetName) {
       if (settings3.yushe[newName]) {
@@ -89468,6 +89533,8 @@ async function createPresetCard2(presetName, preset, isSelected, settings3, mode
         }
       }
       renameMember(settings3, GROUP_SCOPE, presetName, newName);
+      renamePresetListEntry(settings3, presetName, newName);
+      notifyStylePresetListChanged(settings3);
       saveSettingsDebounced40();
       if (onRefreshGrid) onRefreshGrid();
     }
@@ -89479,18 +89546,18 @@ async function createPresetCard2(presetName, preset, isSelected, settings3, mode
   deletePresetBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
   deletePresetBtn.onclick = (e) => {
     e.stopPropagation();
+    if (presetName === "默认") { alert("默认预设不能删除"); return; }
     if (confirm(`\u786E\u5B9A\u8981\u5F7B\u5E95\u5220\u9664\u9884\u8BBE "${presetName}" \u5417\uFF1F\u6B64\u64CD\u4F5C\u4E0D\u53EF\u6062\u590D\uFF01`)) {
-      if (preset.previewImageId) {
-        deleteConfigImage(preset.previewImageId);
-      }
+      const deletedImageId = preset.previewImageId;
       delete settings3.yushe[presetName];
+      if (deletedImageId && !Object.values(settings3.yushe).some((entry) => entry?.previewImageId === deletedImageId)) deleteConfigImage(deletedImageId);
+      removePresetListEntries(settings3, [presetName]);
       removeMember(settings3, GROUP_SCOPE, presetName);
       const suffix = getSuffix(mode);
       const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
       const isDeletingCurrentPreset = settings3[yusheIdKey] === presetName;
-      if (isDeletingCurrentPreset) {
-        settings3[yusheIdKey] = "\u9ED8\u8BA4";
-      }
+      resetDeletedStylePresetSelections(settings3, presetName);
+      notifyStylePresetListChanged(settings3);
       saveSettingsDebounced40();
       if (isDeletingCurrentPreset) {
         if (onCloseDialog) onCloseDialog();
@@ -89891,7 +89958,95 @@ function handleResultClick3(inputEl, resultsEl, tag) {
   const newCursorPosition = (textBefore + leadingSpace + newTagText + trailingComma).length;
   setTimeout(() => inputEl.setSelectionRange(newCursorPosition, newCursorPosition), 0);
 }
+function refreshStylePresetControls(settings3) {
+  const state = ensurePresetListState(settings3);
+  for (const mode of ["sd", "novelai", "comfyui", "runninghub"]) {
+    const suffix = getSuffix(mode);
+    const selectedName = settings3[`yusheid${mode === "sd" ? "_sd" : suffix}`];
+    const sort = document.getElementById("preset_sort" + suffix);
+    const favorite = document.getElementById("preset_favorite" + suffix);
+    const only = document.getElementById("preset_favorites_only" + suffix);
+    if (sort) sort.value = state.sortMode;
+    if (only) only.checked = state.favoritesOnly === true;
+    if (favorite) {
+      const active = isPresetFavorite(settings3, selectedName);
+      favorite.textContent = active ? "★ 已收藏" : "☆ 收藏";
+      favorite.setAttribute("aria-pressed", String(active));
+      favorite.title = active ? "取消收藏当前预设" : "收藏当前预设";
+      favorite.disabled = !settings3.yushe?.[selectedName];
+    }
+  }
+}
+function refreshStylePresetSelectors(settings3) {
+  if (!settings3.yushe) return;
+  const names = getOrderedPresetNames(settings3);
+  for (const mode of ["sd", "novelai", "comfyui", "runninghub"]) {
+    const suffix = getSuffix(mode);
+    const select = document.getElementById("yusheid" + suffix);
+    if (!select) continue;
+    const key = `yusheid${mode === "sd" ? "_sd" : suffix}`;
+    const previous = select.value;
+    const selected = settings3.yushe[settings3[key]] ? settings3[key] : previous;
+    const visible = names.slice();
+    if (selected && settings3.yushe[selected] && !visible.includes(selected)) visible.push(selected);
+    select.innerHTML = "";
+    for (const name of visible) {
+      const hiddenCurrent = !names.includes(name);
+      const label = (isPresetFavorite(settings3, name) ? "★ " : "") + name + (hiddenCurrent ? "（当前，未收藏）" : "");
+      const option = new Option(label, name);
+      option.title = name;
+      select.add(option);
+    }
+    select.value = selected || "";
+  }
+  refreshStylePresetControls(settings3);
+}
+function notifyStylePresetListChanged(settings3, added = false) {
+  refreshStylePresetSelectors(settings3);
+  document.dispatchEvent(new CustomEvent("st-chatu8-style-presets-changed", { detail: { added } }));
+}
+function saveActiveStylePresetModel(settings3, defaults = {}) {
+  const presetName = settings3.yusheid_novelai;
+  if (!presetName || !settings3.yushe?.[presetName]) return null;
+  for (const key of STYLE_MODEL_FIELDS) {
+    const el = document.getElementById(key);
+    if (!el) continue;
+    if (el.type === "checkbox") settings3[key] = el.checked;
+    else if (el.type === "number") settings3[key] = el.value === "" ? "" : Number(el.value);
+    else settings3[key] = el.value;
+  }
+  return saveStyleModelPreset(settings3, presetName, defaults);
+}
+function applyStylePresetModelToUI(settings3, presetName, defaults = {}) {
+  if (!settings3.yushe?.[presetName]) return;
+  const config = applyStyleModelPreset(settings3, presetName, defaults);
+  for (const key of STYLE_MODEL_FIELDS) {
+    const el = document.getElementById(key);
+    if (!el || config[key] === void 0) continue;
+    if (el.type === "checkbox") el.checked = config[key] === true || String(config[key]) === "true";
+    else el.value = config[key];
+  }
+  if (typeof refreshNovelaiUIFromSettings === "function") refreshNovelaiUIFromSettings(settings3.novelaimode);
+  refreshStylePresetControls(settings3);
+}
+function resetDeletedStylePresetSelections(settings3, presetName) {
+  for (const mode of ["sd", "novelai", "comfyui", "runninghub"]) {
+    const suffix = getSuffix(mode);
+    const key = `yusheid${mode === "sd" ? "_sd" : suffix}`;
+    if (settings3[key] !== presetName) continue;
+    settings3[key] = "默认";
+    const fallback = settings3.yushe?.["默认"] || {};
+    for (const field of ["fixedPrompt", "fixedPrompt_end", "negativePrompt"]) {
+      const textarea = document.getElementById(field + suffix);
+      if (textarea) textarea.value = fallback[field] ?? "";
+    }
+    if (mode === "novelai" && settings3.yushe?.["默认"]) applyStylePresetModelToUI(settings3, "默认", typeof defaultSettings === "undefined" ? {} : defaultSettings);
+  }
+}
+
 function initPromptSettings(settingsModal, settings3) {
+  ensureStyleModelPresets(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
+  ensurePresetListState(settings3);
   setupPresetBoxes(settingsModal);
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".st-chatu8-field-col")) {
@@ -89900,6 +90055,22 @@ function initPromptSettings(settingsModal, settings3) {
   });
   generationTabs2.forEach((mode) => {
     const suffix = getSuffix(mode);
+    settingsModal.find(`#preset_sort${suffix}`).on("change", function() {
+      setPresetSortMode(settings3, this.value);
+      notifyStylePresetListChanged(settings3);
+      saveSettingsDebounced41();
+    });
+    settingsModal.find(`#preset_favorite${suffix}`).on("click", function() {
+      const key = `yusheid${mode === "sd" ? "_sd" : suffix}`;
+      togglePresetFavorite(settings3, settings3[key]);
+      notifyStylePresetListChanged(settings3);
+      saveSettingsDebounced41();
+    });
+    settingsModal.find(`#preset_favorites_only${suffix}`).on("change", function() {
+      setPresetFavoritesOnly(settings3, this.checked);
+      notifyStylePresetListChanged(settings3);
+      saveSettingsDebounced41();
+    });
     settingsModal.find(`#yusheid${suffix}`).on("change", () => st_chatu8_tishici_change(mode, settings3));
     settingsModal.find(`#st_chatu8_tishici_new${suffix}`).on("click", () => st_chatu8_tishici_new(mode, settings3));
     settingsModal.find(`#st_chatu8_tishici_rename${suffix}`).on("click", () => st_chatu8_tishici_rename(mode, settings3));
@@ -89986,6 +90157,7 @@ function initPromptSettings(settingsModal, settings3) {
       setTimeout(debouncedUpdateTokens, 2e3);
     }
   });
+  refreshStylePresetSelectors(settings3);
 }
 function st_chatu8_tishici_change(mode, settings3) {
   const suffix = getSuffix(mode);
@@ -89993,13 +90165,15 @@ function st_chatu8_tishici_change(mode, settings3) {
   const newPresetId = selectElement.value;
   const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
   const currentPresetId = settings3[yusheIdKey];
-  if (newPresetId === currentPresetId) return;
+  if (!newPresetId || !settings3.yushe?.[newPresetId]) { selectElement.value = currentPresetId; return; }
+  if (newPresetId === currentPresetId) { refreshStylePresetControls(settings3); return; }
   const currentPreset = settings3.yushe[currentPresetId] || {};
   const fixedPrompt = document.getElementById("fixedPrompt" + suffix).value;
   const fixedPrompt_end = document.getElementById("fixedPrompt_end" + suffix).value;
   const negativePrompt = document.getElementById("negativePrompt" + suffix).value;
   const isDirty = fixedPrompt !== (currentPreset.fixedPrompt ?? "") || fixedPrompt_end !== (currentPreset.fixedPrompt_end ?? "") || negativePrompt !== (currentPreset.negativePrompt ?? "");
   const switchPreset = () => {
+    if (mode === "novelai") saveActiveStylePresetModel(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
     settings3[yusheIdKey] = newPresetId;
     saveSettingsDebounced41();
     const newPreset = settings3.yushe[newPresetId] || {};
@@ -90013,8 +90187,10 @@ function st_chatu8_tishici_change(mode, settings3) {
       if (warning) $(warning).hide();
     });
     if (mode === "novelai") {
+      applyStylePresetModelToUI(settings3, newPresetId, typeof defaultSettings === "undefined" ? {} : defaultSettings);
       $(`#fixedPrompt${suffix}`).trigger("input");
     }
+    refreshStylePresetControls(settings3);
   };
   if (isDirty) {
     stylishConfirm("\u60A8\u6709\u672A\u4FDD\u5B58\u7684\u66F4\u6539\u3002\u8981\u653E\u5F03\u8FD9\u4E9B\u66F4\u6539\u5E76\u5207\u6362\u9884\u8BBE\u5417\uFF1F").then((confirmed) => {
@@ -90031,14 +90207,20 @@ function st_chatu8_tishici_change(mode, settings3) {
 function st_chatu8_tishici_new(mode, settings3) {
   const suffix = getSuffix(mode);
   const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
+  ensureStyleModelPresets(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
+  if (mode === "novelai") saveActiveStylePresetModel(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
+  const inheritedModelSettings = getStyleModelSettings(settings3, settings3[yusheIdKey], typeof defaultSettings === "undefined" ? {} : defaultSettings);
   stylInput("\u8BF7\u8F93\u5165\u65B0\u9884\u8BBE\u7684\u540D\u79F0").then((newName) => {
     if (newName && newName.trim() !== "") {
       if (settings3.yushe[newName]) {
         alert("\u8BE5\u540D\u79F0\u5DF2\u5B58\u5728\uFF0C\u8BF7\u6362\u4E00\u4E2A\u540D\u79F0\u3002");
         return;
       }
-      settings3.yushe[newName] = { fixedPrompt: "", fixedPrompt_end: "", negativePrompt: "" };
+      settings3.yushe[newName] = { fixedPrompt: "", fixedPrompt_end: "", negativePrompt: "", modelSettings: inheritedModelSettings };
+      registerPresetAdditions(settings3, [newName]);
       settings3[yusheIdKey] = newName;
+      if (mode === "novelai") applyStyleModelPreset(settings3, newName, typeof defaultSettings === "undefined" ? {} : defaultSettings);
+      notifyStylePresetListChanged(settings3, true);
       saveSettingsDebounced41();
       window.loadSilterTavernChatu8Settings();
       toastr.success(`\u5DF2\u521B\u5EFA\u7A7A\u9884\u8BBE "${newName}"`);
@@ -90061,7 +90243,14 @@ function st_chatu8_tishici_rename(mode, settings3) {
       }
       settings3.yushe[newName] = settings3.yushe[currentName];
       delete settings3.yushe[currentName];
-      settings3[yusheIdKey] = newName;
+      for (const presetMode of ["sd", "novelai", "comfyui", "runninghub"]) {
+        const presetSuffix = getSuffix(presetMode);
+        const key = `yusheid${presetMode === "sd" ? "_sd" : presetSuffix}`;
+        if (settings3[key] === currentName) settings3[key] = newName;
+      }
+      renameMember(settings3, GROUP_SCOPE, currentName, newName);
+      renamePresetListEntry(settings3, currentName, newName);
+      notifyStylePresetListChanged(settings3);
       saveSettingsDebounced41();
       window.loadSilterTavernChatu8Settings();
       toastr.success(`\u9884\u8BBE\u5DF2\u91CD\u547D\u540D\u4E3A "${newName}"`);
@@ -90072,12 +90261,17 @@ function st_chatu8_tishici_save(mode, settings3) {
   const suffix = getSuffix(mode);
   stylInput("\u8BF7\u8F93\u5165\u65B0\u914D\u7F6E\u7684\u540D\u79F0").then((result) => {
     if (result && result.trim() !== "") {
+      if (mode === "novelai") saveActiveStylePresetModel(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
       const fixedPrompt = document.getElementById("fixedPrompt" + suffix).value;
       const fixedPrompt_end = document.getElementById("fixedPrompt_end" + suffix).value;
       const negativePrompt = document.getElementById("negativePrompt" + suffix).value;
       const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
-      settings3.yushe[result] = { ...settings3.yushe[result] || {}, "fixedPrompt": fixedPrompt, "fixedPrompt_end": fixedPrompt_end, "negativePrompt": negativePrompt };
+      const isNewPreset = !Object.prototype.hasOwnProperty.call(settings3.yushe, result);
+      const modelSettings = getStyleModelSettings(settings3, settings3[yusheIdKey], typeof defaultSettings === "undefined" ? {} : defaultSettings);
+      settings3.yushe[result] = { ...settings3.yushe[result] || {}, fixedPrompt, fixedPrompt_end, negativePrompt, modelSettings };
+      if (isNewPreset) registerPresetAdditions(settings3, [result]);
       settings3[yusheIdKey] = result;
+      notifyStylePresetListChanged(settings3, isNewPreset);
       saveSettingsDebounced41();
       window.loadSilterTavernChatu8Settings();
       alert(`\u9884\u8BBE "${result}" \u5DF2\u4FDD\u5B58\u3002`);
@@ -90094,6 +90288,7 @@ function st_chatu8_tishici_update(mode, settings3) {
   }
   stylishConfirm(`\u786E\u5B9A\u8981\u8986\u76D6\u5F53\u524D\u9884\u8BBE "${presetName}" \u5417\uFF1F`).then((confirmed) => {
     if (confirmed) {
+      if (mode === "novelai") saveActiveStylePresetModel(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
       const fixedPrompt = document.getElementById("fixedPrompt" + suffix).value;
       const fixedPrompt_end = document.getElementById("fixedPrompt_end" + suffix).value;
       const negativePrompt = document.getElementById("negativePrompt" + suffix).value;
@@ -90139,6 +90334,9 @@ function st_chatu8_tishici_delete(mode, settings3) {
   stylishConfirm("\u662F\u5426\u786E\u5B9A\u5220\u9664").then((result) => {
     if (result) {
       Reflect.deleteProperty(settings3.yushe, valueToDelete);
+      removePresetListEntries(settings3, [valueToDelete]);
+      removeMember(settings3, GROUP_SCOPE, valueToDelete);
+      notifyStylePresetListChanged(settings3);
       settings3[yusheIdKey] = "\u9ED8\u8BA4";
       saveSettingsDebounced41();
       window.loadSilterTavernChatu8Settings();
@@ -90162,6 +90360,8 @@ async function st_chatu8_tishici_export_current(mode, settings3) {
       mode = "sd";
     }
   }
+  ensureStyleModelPresets(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
+  if (mode === "novelai") saveActiveStylePresetModel(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
   const suffix = getSuffix(mode);
   const selectElement = document.getElementById("yusheid" + suffix);
   const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
@@ -90172,7 +90372,7 @@ async function st_chatu8_tishici_export_current(mode, settings3) {
   }
   const preset = settings3.yushe[selectedId];
   const dataToExport = {
-    presets: { [selectedId]: preset },
+    presets: { [selectedId]: { ...preset, modelSettings: getStyleModelSettings(settings3, selectedId, typeof defaultSettings === "undefined" ? {} : defaultSettings) } },
     images: {}
   };
   if (preset.previewImageId) {
@@ -90197,12 +90397,13 @@ async function st_chatu8_tishici_export_current(mode, settings3) {
   URL.revokeObjectURL(url);
 }
 async function st_chatu8_tishici_export_all(settings3) {
+  ensureStyleModelPresets(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
   if (!settings3.yushe || Object.keys(settings3.yushe).length === 0) {
     alert("\u6CA1\u6709\u9884\u8BBE\u53EF\u5BFC\u51FA\u3002");
     return;
   }
   const dataToExport = {
-    presets: settings3.yushe,
+    presets: Object.fromEntries(Object.entries(settings3.yushe).map(([name, preset]) => [name, { ...preset, modelSettings: getStyleModelSettings(settings3, name, typeof defaultSettings === "undefined" ? {} : defaultSettings) }])),
     images: {}
   };
   const imageIdsToExport = /* @__PURE__ */ new Set();
@@ -90277,14 +90478,25 @@ function st_chatu8_tishici_import(settings3) {
           }
         }
         let newPresetsCount = 0;
+        const addedPresetNames = [];
         for (const key in presetsToImport) {
           if (presetsToImport.hasOwnProperty(key)) {
             if (!settings3.yushe.hasOwnProperty(key)) {
               newPresetsCount++;
+              addedPresetNames.push(key);
             }
             settings3.yushe[key] = presetsToImport[key];
           }
         }
+        for (const name of Object.keys(presetsToImport)) {
+          const importedPreset = settings3.yushe[name];
+          if (importedPreset?.modelSettings && typeof importedPreset.modelSettings === "object" && !Array.isArray(importedPreset.modelSettings)) {
+            importedPreset.modelSettings = getStyleModelSettings(settings3, name, typeof defaultSettings === "undefined" ? {} : defaultSettings);
+          }
+        }
+        ensureStyleModelPresets(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
+        if (addedPresetNames.length) registerPresetAdditions(settings3, addedPresetNames);
+        notifyStylePresetListChanged(settings3, addedPresetNames.length > 0);
         saveSettingsDebounced41();
         window.loadSilterTavernChatu8Settings();
         let message = `\u6210\u529F\u5BFC\u5165 ${Object.keys(presetsToImport).length} \u4E2A\u9884\u8BBE\uFF0C\u5176\u4E2D ${newPresetsCount} \u4E2A\u662F\u5168\u65B0\u7684\u3002`;
@@ -92331,6 +92543,7 @@ function saveModelConfigFromUI(modelName) {
     }
   });
   settings3.novelai_model_configs[modelName] = currentConfig;
+  if (modelName === settings3.novelaimode) saveActiveStylePresetModel(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
 }
 function loadModelConfigIntoUI(modelName) {
   if (!modelName) return;
@@ -92598,6 +92811,7 @@ function updateNovelaiModelSchedule(isInitial = false) {
     }
   }
   updateNovelaiScheduleVisibility();
+  saveActiveStylePresetModel(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
   saveSettingsDebounced47();
   const fixedPromptEl = document.getElementById("fixedPrompt_novelai");
   if (fixedPromptEl) {
@@ -92842,6 +93056,10 @@ function initNovelaiUI(settingsModal) {
       saveModelConfigFromUI(currentModel);
       saveSettingsDebounced47();
     }
+  });
+  settingsModal.find("#novelai_seed").on("change input", function() {
+    saveActiveStylePresetModel(settings3, typeof defaultSettings === "undefined" ? {} : defaultSettings);
+    saveSettingsDebounced47();
   });
   updateNovelaiModelSchedule(true);
   updateNovelaiOtherSiteVisibility();
@@ -110290,18 +110508,6 @@ function refreshNovelaiProfileSelect() {
   if (!settings3.novelai_profile_id) {
     settings3.novelai_profile_id = "\u9ED8\u8BA4";
   }
-  for (const profileId in settings3.novelai_profiles) {
-    const profile = settings3.novelai_profiles[profileId];
-    if (profile.enableVibeGroupTransfer === void 0) {
-      profile.enableVibeGroupTransfer = "false";
-    }
-    if (profile.normalizeRefStrength === void 0) {
-      profile.normalizeRefStrength = "false";
-    }
-    if (profile.randomVibeGroup === void 0) {
-      profile.randomVibeGroup = "false";
-    }
-  }
   select.innerHTML = "";
   const sortedKeys = Object.keys(settings3.novelai_profiles).sort((a, b) => a.localeCompare(b, "zh-CN"));
   for (const key of sortedKeys) {
@@ -110331,26 +110537,7 @@ function refreshComfyuiProfileSelect() {
   select.value = settings3.comfyui_profile_id;
 }
 function collectNovelaiProfile() {
-  const settings3 = getSettings3();
-  const modeSelect = document.getElementById("novelaimode");
-  const currentModel = modeSelect ? modeSelect.value : settings3.novelaimode || "nai-diffusion-4-5-full";
-  if (currentModel) {
-    saveModelConfigFromUI(currentModel);
-  }
-  const profile = {};
-  for (const key of NOVELAI_PROFILE_KEYS) {
-    let val = settings3[key];
-    if (key === "novelaiApi" && typeof val === "string") {
-      val = val.trim();
-    }
-    profile[key] = val;
-  }
-  if (settings3.novelai_model_configs) {
-    profile.novelai_model_configs = JSON.parse(JSON.stringify(settings3.novelai_model_configs));
-  } else {
-    profile.novelai_model_configs = {};
-  }
-  return profile;
+  return collectNovelAIApiSettings(getSettings3());
 }
 function collectComfyuiProfile() {
   const settings3 = getSettings3();
@@ -110363,49 +110550,16 @@ function collectComfyuiProfile() {
 function applyNovelaiProfile(profile) {
   const settings3 = getSettings3();
   if (!profile) return;
-  if (profile.enableVibeGroupTransfer === void 0) {
-    profile.enableVibeGroupTransfer = "false";
-  }
-  if (profile.normalizeRefStrength === void 0) {
-    profile.normalizeRefStrength = "false";
-  }
-  if (profile.randomVibeGroup === void 0) {
-    profile.randomVibeGroup = "false";
-  }
-  const targetModel = profile.novelaimode || settings3.novelaimode || "nai-diffusion-4-5-full";
-  if (profile.novelai_model_configs && typeof profile.novelai_model_configs === "object" && Object.keys(profile.novelai_model_configs).length > 0) {
-    settings3.novelai_model_configs = JSON.parse(JSON.stringify(profile.novelai_model_configs));
-  } else {
-    settings3.novelai_model_configs = settings3.novelai_model_configs || {};
-    const legacyConfig = {};
-    NOVELAI_MODEL_PARAM_KEYS.forEach((key) => {
-      if (profile[key] !== void 0) {
-        legacyConfig[key] = profile[key];
-      }
-    });
-    if (Object.keys(legacyConfig).length > 0) {
-      settings3.novelai_model_configs[targetModel] = legacyConfig;
+  applyNovelAIApiSettings(settings3, profile);
+  for (const key of NOVELAI_API_PROFILE_FIELDS) {
+    if (profile[key] === void 0) continue;
+    const element = document.getElementById(key);
+    if (element) {
+      if (element.type === "checkbox") element.checked = settings3[key] === true || String(settings3[key]) === "true";
+      else element.value = settings3[key];
     }
   }
-  for (const key of NOVELAI_PROFILE_KEYS) {
-    if (profile[key] !== void 0) {
-      let val = profile[key];
-      if (key === "novelaiApi" && typeof val === "string") {
-        val = val.trim();
-      }
-      settings3[key] = val;
-      const element = document.getElementById(key);
-      if (element) {
-        if (element.type === "checkbox") {
-          element.checked = String(val) === "true" || val === true;
-        } else {
-          element.value = val;
-        }
-      }
-    }
-  }
-  refreshNovelaiUIFromSettings(targetModel);
-  syncSliders();
+  if (typeof clearNovelAIUrlCache === "function") clearNovelAIUrlCache();
   updateNovelaiOtherSiteVisibility();
   if (settings3.novelaisite && settings3.novelaisite !== "\u5B98\u7F51") {
     const clientSelect = document.getElementById("client");
@@ -110599,7 +110753,7 @@ function initProfileControls(settingsModal) {
       const overwrite = await stylishConfirm("\u786E\u8BA4\u8986\u76D6", `\u914D\u7F6E "${trimmedName}" \u5DF2\u5B58\u5728\uFF0C\u662F\u5426\u8986\u76D6\uFF1F`);
       if (!overwrite) return;
     }
-    settings3.novelai_profiles[trimmedName] = collectNovelaiProfile();
+    settings3.novelai_profiles[trimmedName] = { ...settings3.novelai_profiles[trimmedName], ...collectNovelaiProfile() };
     settings3.novelai_profile_id = trimmedName;
     refreshNovelaiProfileSelect();
     saveSettingsDebounced63();
@@ -110612,7 +110766,7 @@ function initProfileControls(settingsModal) {
     if (!profileId) return;
     const confirmed = await stylishConfirm("\u786E\u8BA4\u4FDD\u5B58", `\u786E\u5B9A\u8981\u5C06\u5F53\u524D\u6240\u6709\u8BBE\u7F6E\u4FDD\u5B58\u5E76\u8986\u76D6\u5230\u914D\u7F6E "${profileId}" \u4E2D\u5417\uFF1F`);
     if (!confirmed) return;
-    settings3.novelai_profiles[profileId] = collectNovelaiProfile();
+    settings3.novelai_profiles[profileId] = { ...settings3.novelai_profiles[profileId], ...collectNovelaiProfile() };
     saveSettingsDebounced63();
     toastr.success(`\u5DF2\u4FDD\u5B58\u5F53\u524D\u914D\u7F6E: ${profileId}`);
   });
@@ -112566,6 +112720,9 @@ async function initUI({ check_update: check_update2 }) {
   }
   async function loadSettingsIntoUI() {
     settings2 = extension_settings113[extensionName];
+    ensureStyleModelPresets(settings2, defaultSettings);
+    ensurePresetListState(settings2);
+    if (settings2.yushe?.[settings2.yusheid_novelai]) applyStyleModelPreset(settings2, settings2.yusheid_novelai, defaultSettings);
     if (settings2.vibeJiuguanchucun === void 0) {
       settings2.vibeJiuguanchucun = defaultSettings.vibeJiuguanchucun;
       saveSettingsDebounced71();
@@ -112827,7 +112984,7 @@ async function initUI({ check_update: check_update2 }) {
       const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
       if (yusheSelect) {
         yusheSelect.innerHTML = "";
-        const sortedKeys = Object.keys(settings2.yushe).sort((a, b) => a.localeCompare(b, "zh-CN"));
+        const sortedKeys = getOrderedPresetNames(settings2);
         for (const key of sortedKeys) {
           const option = new Option(key, key);
           option.title = key;
@@ -112847,6 +113004,8 @@ async function initUI({ check_update: check_update2 }) {
         }
       });
     });
+    refreshStylePresetSelectors(settings2);
+    saveSettingsDebounced71();
     if (!settings2.prompt_replace) {
       settings2.prompt_replace = { "\u9ED8\u8BA4": { "text": "" } };
     }
@@ -113000,7 +113159,7 @@ async function initUI({ check_update: check_update2 }) {
     updateNovelaiOtherSiteVisibility();
     updateNovelaiModelUIState(settings2.novelaimode);
   }
-  loadSettingsIntoUI();
+  await loadSettingsIntoUI();
   updateGenerationModeHandlers();
   initFab();
   const settingsModal = $("#ch-settings-modal");

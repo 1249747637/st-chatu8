@@ -17,6 +17,14 @@ Modified on **2026-11-22**:
 
 The default branch is `toast-maintained`. The inherited `main` branch is retained for provenance; it is not the installed maintenance branch. There is no automatic upstream-sync workflow for this maintained branch. Future upstream changes are reviewed and integrated manually only.
 
+## Style and model presets — 3.2.2-toast.1
+
+Prompt presets are now labelled **画风及模型预设** and carry isolated NovelAI model settings: model, Effort, straight-alpha output, sampler, schedule, guidance, dimensions, steps, seed and quality toggles. API connection profiles remain separate. New empty presets inherit only the previously opened preset's model settings; their prompts stay empty.
+
+Both native and visual lists share common sorting and favorites. Creating a preset switches to newest-first, exits favorites-only and puts the new preset first. There is no drag or custom ordering. Legacy presets are migrated idempotently from the current model settings while keeping prompt text and preview references unchanged. Existing API-profile legacy fields are retained as archival data but are not applied to the active model.
+
+Generation and inpaint capture the selected model settings before asynchronous queue work. Model snapshots are filtered when importing/exporting, so API credentials do not enter model data. Vibe/image data are not copied into each preset. The original preview-isolation and fork-update isolation remain in place.
+
 ## Installation
 
 Install `https://github.com/1249747637/st-chatu8.git` through SillyTavern's extension manager. The default branch is the maintained branch. If choosing a branch explicitly, select `toast-maintained`.
