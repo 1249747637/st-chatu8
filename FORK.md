@@ -1,0 +1,26 @@
+# Toastoast maintained fork
+
+This is a non-commercial maintained fork of [damoshen123/st-chatu8](https://github.com/damoshen123/st-chatu8), maintained by **Toastoast / GitHub `1249747637`**. Original authorship and copyright notices remain intact.
+
+The complete work remains covered by **Aladdin Free Public License, version 9**. Read or print [`LICENSE`](LICENSE) for the full terms. AFPL v9 is not an Open Source Initiative-approved license. No warranty is provided.
+
+## Baseline and changes
+
+The maintained branch is **`toast-maintained`**, based on upstream commit **`a4c417f98e9697be44935486a0504713532994b3`** (v3.2.1), not on subsequent upstream main commits.
+
+Modified on **2026-11-22**:
+
+- Preserve separate preview-image IDs and physical filenames, preventing preset preview images from overwriting each other.
+- Synchronize visual preset renames with native preset options and every active mode reference, without clearing prompt fields.
+- Point both built-in update checks and the reinstall guide to this fork.
+- Set `manifest.auto_update` explicitly to `false`.
+
+The default branch is `toast-maintained`. The inherited `main` branch is retained for provenance; it is not the installed maintenance branch. There is no automatic upstream-sync workflow for this maintained branch. Future upstream changes are reviewed and integrated manually only.
+
+## Installation
+
+Install `https://github.com/1249747637/st-chatu8.git` through SillyTavern's extension manager. The default branch is the maintained branch. If choosing a branch explicitly, select `toast-maintained`.
+
+Existing installations retain the original `st-chatu8` extension directory and settings namespace. No private user presets, chats, API credentials or generated images are included by these modifications.
+
+Manual extension updates pull this fork's maintained branch, not the original author's main branch.

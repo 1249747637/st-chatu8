@@ -3,6 +3,11 @@
  * st-chatu8 (智绘姬) - SillyTavern 文生图扩展
  * Copyright (C) 从前跟你一样 (github.com/damoshen123)
  *
+ * Maintained fork: Toastoast (GitHub: 1249747637).
+ * Modified 2026-11-22: isolate preset preview uploads, synchronize visual
+ * preset renames, and route update/reinstall links to toast-maintained.
+ * Original copyright and AFPL v9 license remain unchanged; see LICENSE.
+ *
  * 【授权声明】
  * 本程序依据 Aladdin Free Public License (AFPL) 第 9 版授权，
  * 许可证全文见随附的 LICENSE 文件。AFPL 不是开源许可证：
@@ -88909,7 +88914,7 @@ async function checkForUpdates() {
   const updateStatusElement = document.getElementById("ch-update-status");
   console.log("Checking for updates...");
   try {
-    const remoteManifestUrl = `https://raw.githubusercontent.com/damoshen123/st-chatu8/master/manifest.json?t=${(/* @__PURE__ */ new Date()).getTime()}`;
+    const remoteManifestUrl = `https://raw.githubusercontent.com/1249747637/st-chatu8/toast-maintained/manifest.json?t=${(/* @__PURE__ */ new Date()).getTime()}`;
     const response = await fetch(remoteManifestUrl, { cache: "no-cache" });
     if (!response.ok) {
       console.error("Failed to fetch remote manifest for update check.");
@@ -89445,10 +89450,22 @@ async function createPresetCard2(presetName, preset, isSelected, settings3, mode
       }
       settings3.yushe[newName] = settings3.yushe[presetName];
       delete settings3.yushe[presetName];
-      const suffix = getSuffix(mode);
-      const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
-      if (settings3[yusheIdKey] === presetName) {
-        settings3[yusheIdKey] = newName;
+      for (const presetMode of ["sd", "novelai", "comfyui", "runninghub"]) {
+        const suffix = getSuffix(presetMode);
+        const yusheIdKey = `yusheid${presetMode === "sd" ? "_sd" : suffix}`;
+        if (settings3[yusheIdKey] === presetName) {
+          settings3[yusheIdKey] = newName;
+        }
+        const selectElement = document.getElementById("yusheid" + suffix);
+        if (selectElement) {
+          for (const option of selectElement.options) {
+            if (option.value === presetName) {
+              option.value = newName;
+              option.textContent = newName;
+              option.title = newName;
+            }
+          }
+        }
       }
       renameMember(settings3, GROUP_SCOPE, presetName, newName);
       saveSettingsDebounced40();
@@ -89534,25 +89551,33 @@ function handleImageUpload2(presetName, settings3, container) {
     try {
       const reader = new FileReader();
       reader.onload = async (readerEvent) => {
-        const base64 = readerEvent.target.result;
-        const oldImageId = settings3.yushe[presetName]?.previewImageId;
-        if (oldImageId) {
-          try {
-            await deleteConfigImage(oldImageId);
-          } catch (e2) {
-            console.warn("\u5220\u9664\u65E7\u9884\u89C8\u56FE\u5931\u8D25:", e2);
+        try {
+          const base64 = readerEvent.target.result;
+          const oldImageId = settings3.yushe[presetName]?.previewImageId;
+          const imageId = generateConfigImageId();
+          const format = file.type.split("/")[1] || "png";
+          const newImageId = await saveConfigImage(base64, {
+            id: imageId,
+            format,
+            filename: `${imageId}.${format}`
+          });
+          if (!settings3.yushe[presetName]) {
+            settings3.yushe[presetName] = {};
           }
+          settings3.yushe[presetName].previewImageId = newImageId;
+          saveSettingsDebounced40();
+          if (oldImageId && !Object.values(settings3.yushe).some(preset => preset?.previewImageId === oldImageId)) {
+            try {
+              await deleteConfigImage(oldImageId);
+            } catch (e2) {
+              console.warn("\u5220\u9664\u65E7\u9884\u89C8\u56FE\u5931\u8D25:", e2);
+            }
+          }
+          await refreshCardImage2(container, newImageId);
+        } catch (error) {
+          console.error("\u4E0A\u4F20\u9884\u89C8\u56FE\u5931\u8D25:", error);
+          alert("\u4E0A\u4F20\u9884\u89C8\u56FE\u5931\u8D25: " + error.message);
         }
-        const newImageId = await saveConfigImage(base64, {
-          format: file.type.split("/")[1] || "png",
-          filename: `preset_${presetName}_preview`
-        });
-        if (!settings3.yushe[presetName]) {
-          settings3.yushe[presetName] = {};
-        }
-        settings3.yushe[presetName].previewImageId = newImageId;
-        saveSettingsDebounced40();
-        refreshCardImage2(container, newImageId);
       };
       reader.readAsDataURL(file);
     } catch (error) {
@@ -114334,7 +114359,7 @@ function setUpdateStatus(text, cls) {
     el.className = `st-chatu8-update-status ${cls || ""}`.trim();
   }
 }
-var REINSTALL_GIT_URL = "https://github.com/damoshen123/st-chatu8.git";
+var REINSTALL_GIT_URL = "https://github.com/1249747637/st-chatu8.git";
 function showReinstallGuide(reason) {
   const existing = document.getElementById("st-chatu8-reinstall-guide");
   if (existing) existing.remove();
@@ -114591,7 +114616,7 @@ async function checkForUpdates2() {
   const updateNotesElement = document.getElementById("ch-update-notes");
   console.log("Checking for updates...", updateNotesElement);
   try {
-    const remoteManifestUrl = `https://raw.githubusercontent.com/damoshen123/st-chatu8/master/manifest.json?t=${(/* @__PURE__ */ new Date()).getTime()}`;
+    const remoteManifestUrl = `https://raw.githubusercontent.com/1249747637/st-chatu8/toast-maintained/manifest.json?t=${(/* @__PURE__ */ new Date()).getTime()}`;
     const response = await fetch(remoteManifestUrl, { cache: "no-cache" });
     if (!response.ok) {
       console.error("Failed to fetch remote manifest for update check.");
