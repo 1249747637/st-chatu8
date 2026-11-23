@@ -110727,6 +110727,31 @@ function syncSliders() {
 }
 function initProfileControls(settingsModal) {
   const settings3 = getSettings3();
+  function saveOutgoingNovelaiProfile() {
+    const activeId = settings3.novelai_profile_id;
+    if (!activeId || !settings3.novelai_profiles?.[activeId]) return;
+    const values = collectNovelaiProfile();
+    for (const key of NOVELAI_API_PROFILE_FIELDS) {
+      const element = document.getElementById(key);
+      if (!element) continue;
+      if (element.type === "checkbox") values[key] = element.checked;
+      else if (element.type === "number") values[key] = element.value === "" ? "" : Number(element.value);
+      else values[key] = element.value;
+    }
+    applyNovelAIApiSettings(settings3, values);
+    settings3.novelai_profiles[activeId] = { ...settings3.novelai_profiles[activeId], ...values };
+  }
+  function selectNovelaiProfile(profileId, saveOutgoing = false) {
+    const profile = settings3.novelai_profiles?.[profileId];
+    if (!profile) return false;
+    if (saveOutgoing && settings3.novelai_profile_id !== profileId) saveOutgoingNovelaiProfile();
+    settings3.novelai_profile_id = profileId;
+    applyNovelaiProfile(profile);
+    const select = document.getElementById("novelai_profile_id");
+    if (select) select.value = profileId;
+    saveSettingsDebounced63();
+    return true;
+  }
   if (!settings3.novelai_profiles) {
     settings3.novelai_profiles = JSON.parse(JSON.stringify(defaultSettings.novelai_profiles));
   }
@@ -110739,9 +110764,7 @@ function initProfileControls(settingsModal) {
     const profileId = select.value;
     const profile = settings3.novelai_profiles[profileId];
     if (profile) {
-      applyNovelaiProfile(profile);
-      settings3.novelai_profile_id = profileId;
-      saveSettingsDebounced63();
+      selectNovelaiProfile(profileId, false);
       toastr.success(`\u5DF2\u52A0\u8F7D\u914D\u7F6E: ${profileId}`);
     }
   });
@@ -110790,9 +110813,7 @@ function initProfileControls(settingsModal) {
     const profileId = this.value;
     const profile = settings3.novelai_profiles[profileId];
     if (profile) {
-      applyNovelaiProfile(profile);
-      settings3.novelai_profile_id = profileId;
-      saveSettingsDebounced63();
+      selectNovelaiProfile(profileId, true);
     }
   });
   settingsModal.find("#comfyui_profile_load").on("click", function() {

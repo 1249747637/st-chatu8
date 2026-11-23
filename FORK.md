@@ -25,6 +25,10 @@ Both native and visual lists share common sorting and favorites. Creating a pres
 
 Generation and inpaint capture the selected model settings before asynchronous queue work. Model snapshots are filtered when importing/exporting, so API credentials do not enter model data. Vibe/image data are not copied into each preset. The original preview-isolation and fork-update isolation remain in place.
 
+## API profile switching — 3.2.2-toast.2
+
+Switching the API-profile selector now saves the outgoing profile's current API edits before applying the next profile. The requested profile ID is committed before client-dependent refreshes, preventing the selector from reverting to the previous/default entry. Model preset data and API-profile archival fields remain separate. The explicit load button still loads saved values.
+
 ## Installation
 
 Install `https://github.com/1249747637/st-chatu8.git` through SillyTavern's extension manager. The default branch is the maintained branch. If choosing a branch explicitly, select `toast-maintained`.
