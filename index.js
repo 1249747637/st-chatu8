@@ -27587,6 +27587,16 @@ function createGroupDropdown(config) {
     countEl.textContent = filterByGroup(allNames, settings3, scope, currentGroupId).length;
     trigger.classList.toggle("active", !!currentGroupId);
   }
+  function setCurrentGroupId(id) {
+    if (id !== null && id !== UNGROUPED && !getGroups(settings3, scope).some((group) => group.id === id)) {
+      return false;
+    }
+    currentGroupId = id;
+    refreshTrigger();
+    panel.close();
+    if (onFilterChange) onFilterChange(id);
+    return true;
+  }
   function makeRow({ id, name, count, isActive }) {
     const row = document.createElement("div");
     row.className = "st-chatu8-group-dropdown-item" + (isActive ? " active" : "");
@@ -27596,12 +27606,7 @@ function createGroupDropdown(config) {
             <span class="st-chatu8-group-dropdown-count">${count}</span>
         `;
     row.querySelector(".st-chatu8-group-dropdown-name").textContent = name;
-    row.onclick = () => {
-      currentGroupId = id;
-      refreshTrigger();
-      panel.close();
-      if (onFilterChange) onFilterChange(id);
-    };
+    row.onclick = () => setCurrentGroupId(id);
     return row;
   }
   function renderPanel2() {
@@ -27676,6 +27681,7 @@ function createGroupDropdown(config) {
       trigger.remove();
     },
     getCurrentGroupId: () => currentGroupId,
+    setCurrentGroupId,
     /**
      * 分组在别处被改动后调用（典型场景：管理面板删掉了正在筛选的那个分组）。
      *
@@ -89136,9 +89142,11 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
       searchQuery = "";
       searchInput.value = "";
       currentGroupId = null;
+      if (groupDropdown) groupDropdown.setCurrentGroupId(null);
     }
     orderSelect.value = settings3.presetListState.sortMode;
     favoriteOnly.checked = settings3.presetListState.favoritesOnly;
+    refreshGroupControls();
     updateFilteredPresets();
     renderCurrentPage();
     if (groupDropdown) groupDropdown.refresh();
@@ -89271,6 +89279,53 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
   const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
   const currentPresetId = settings3[yusheIdKey];
   const getAllPresetNames = () => getOrderedPresetNames(settings3);
+  const groupShortcuts = document.createElement("div");
+  groupShortcuts.className = "st-chatu8-preset-group-shortcuts";
+  groupShortcuts.setAttribute("role", "group");
+  groupShortcuts.setAttribute("aria-label", "画风预设分组");
+  function renderGroupShortcuts() {
+    const allNames = getOrderedPresetNames(settings3, { favoritesOnly: false });
+    const entries = [{ id: null, name: "全部", count: allNames.length }, ...getGroups(settings3, GROUP_SCOPE).map((group) => ({
+      id: group.id, name: group.name, count: countMembers(group, allNames)
+    }))];
+    const fragment = document.createDocumentFragment();
+    for (const entry of entries) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "st-chatu8-preset-group-shortcut";
+      const active = currentGroupId === entry.id;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+      const label = document.createElement("span");
+      label.className = "st-chatu8-preset-group-shortcut-label";
+      label.textContent = entry.name;
+      const count = document.createElement("span");
+      count.className = "st-chatu8-preset-group-shortcut-count";
+      count.textContent = entry.count;
+      button.append(label, count);
+      button.onclick = () => {
+        searchQuery = "";
+        searchInput.value = "";
+        if (settings3.presetListState.favoritesOnly) {
+          setPresetFavoritesOnly(settings3, false);
+          favoriteOnly.checked = false;
+          notifyStylePresetListChanged(settings3);
+          saveSettingsDebounced40();
+        }
+        groupDropdown.setCurrentGroupId(entry.id);
+      };
+      fragment.appendChild(button);
+    }
+    groupShortcuts.replaceChildren(fragment);
+  }
+  function refreshGroupControls() {
+    if (groupDropdown) {
+      groupDropdown.syncAfterGroupChange();
+      currentGroupId = groupDropdown.getCurrentGroupId();
+    }
+    renderGroupShortcuts();
+    if (groupManageBtn) groupManageBtn.refresh();
+  }
   groupDropdown = createGroupDropdown({
     container: toggleBtn.parentNode,
     insertBefore: bulkDeleteBtn,
@@ -89280,10 +89335,13 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
     onFilterChange: (groupId) => {
       currentGroupId = groupId;
       currentPage = 1;
+      renderGroupShortcuts();
       updateFilteredPresets();
       renderCurrentPage();
     }
   });
+  toggleBtn.parentNode.insertBefore(groupShortcuts, bulkDeleteBtn);
+  renderGroupShortcuts();
   groupManageBtn = createGroupManageButton({
     container: toggleBtn.parentNode,
     insertBefore: bulkDeleteBtn,
@@ -89291,10 +89349,7 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
     scope: GROUP_SCOPE,
     getAllNames: getAllPresetNames,
     onChanged: () => {
-      if (groupDropdown) {
-        groupDropdown.syncAfterGroupChange();
-        currentGroupId = groupDropdown.getCurrentGroupId();
-      }
+      refreshGroupControls();
       currentPage = 1;
       updateFilteredPresets();
       renderCurrentPage();
@@ -89347,12 +89402,12 @@ async function showPresetVisualSelector(mode, settings3, onSelect) {
       const preset = settings3.yushe?.[presetName];
       if (!preset) continue;
       const card = await createPresetCard2(presetName, preset, presetName === settings3[yusheIdKey], settings3, mode, handleCardClick, {
-        // 归属变了只刷新下拉框计数，网格不动，免得卡片在用户脚下重排
+        // 归属变了只刷新分组控件和计数，网格不动，免得卡片在用户脚下重排
         onGroupChanged: () => {
-          if (groupDropdown) groupDropdown.refresh();
-          if (groupManageBtn) groupManageBtn.refresh();
+          refreshGroupControls();
         },
         onRefreshGrid: () => {
+          refreshGroupControls();
           updateFilteredPresets();
           renderCurrentPage();
           if (groupDropdown) groupDropdown.refresh();

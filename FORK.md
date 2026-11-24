@@ -29,6 +29,10 @@ Generation and inpaint capture the selected model settings before asynchronous q
 
 Switching the API-profile selector now saves the outgoing profile's current API edits before applying the next profile. The requested profile ID is committed before client-dependent refreshes, preventing the selector from reverting to the previous/default entry. Model preset data and API-profile archival fields remain separate. The explicit load button still loads saved values.
 
+## Direct group shortcuts — 3.2.2-toast.3
+
+The style-preset visual selector now displays **All + each real group** as inline shortcut buttons beside its existing group dropdown. Names and counts come from current group data. One click clears search, returns to page one, exits favorites-only and displays that group without selecting a preset or changing the active API/model. Group edits, membership changes and the original dropdown keep the shortcuts synchronized. The existing dropdown and group manager remain available.
+
 ## Installation
 
 Install `https://github.com/1249747637/st-chatu8.git` through SillyTavern's extension manager. The default branch is the maintained branch. If choosing a branch explicitly, select `toast-maintained`.

@@ -13,3 +13,13 @@
 .st-chatu8-preset-list-controls select { width: auto; min-width: 110px; }
 .st-chatu8-preset-empty { padding: 20px 8px; opacity: .75; }
 @media (max-width: 600px) { .st-chatu8-style-preset-toolbar { gap: 5px; } .st-chatu8-style-preset-toolbar .st-chatu8-select { max-width: none; } }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-workflow-viz-toolbar { flex-wrap: wrap; min-width: 0; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-workflow-viz-toolbar > div:last-child { flex-wrap: wrap; align-items: center; min-width: 0; max-width: 100%; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-viz-search-container { min-width: 0; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-viz-search-input { box-sizing: border-box; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-preset-group-shortcuts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-preset-group-shortcut { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 6px 10px; border: 1px solid rgba(255,255,255,.18); border-radius: 16px; background: rgba(255,255,255,.07); color: inherit; font: inherit; cursor: pointer; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-preset-group-shortcut-label { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-preset-group-shortcut-count { flex-shrink: 0; opacity: .75; font-size: .85em; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-preset-group-shortcut.active { border-color: var(--st-chatu8-accent-primary, #4a90e2); background: rgba(74,144,226,.25); color: #fff; }
+.st-chatu8-preset-viz-dialog-wrapper .st-chatu8-preset-group-shortcut:focus-visible { outline: 2px solid var(--st-chatu8-accent-primary, #4a90e2); outline-offset: 2px; }
