@@ -33,6 +33,10 @@ Switching the API-profile selector now saves the outgoing profile's current API 
 
 The style-preset visual selector now displays **All + each real group** as inline shortcut buttons beside its existing group dropdown. Names and counts come from current group data. One click clears search, returns to page one, exits favorites-only and displays that group without selecting a preset or changing the active API/model. Group edits, membership changes and the original dropdown keep the shortcuts synchronized. The existing dropdown and group manager remain available.
 
+## First-entry button binding — 3.2.2-toast.4
+
+Modified on **2026-11-24**. Message HTML reconstruction preserves attribute markers but loses event listeners. Existing, processed and duplicate-button paths now use a common DOM-identity binder: a WeakSet prevents duplicate listeners and a WeakMap refreshes long-press settings. Generation/edit behavior, request IDs, model/API isolation and the group shortcuts remain unchanged. This release does **not** contain a loading-animation fix.
+
 ## Installation
 
 Install `https://github.com/1249747637/st-chatu8.git` through SillyTavern's extension manager. The default branch is the maintained branch. If choosing a branch explicitly, select `toast-maintained`.

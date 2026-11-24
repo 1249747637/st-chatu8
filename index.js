@@ -54675,6 +54675,48 @@ async function getSavedImageMatches(logicalText, rootElement, logicalTextForMatc
   }
   return result;
 }
+function bindImageTagButton(button, settings3 = extension_settings55[extensionName]) {
+  if (!button) return;
+  imageTagButtonSettings.set(button, settings3);
+  if (boundImageTagButtons.has(button)) return;
+  let pressTimer = null;
+  let isLongPress2 = false;
+  const longPressThreshold = 1200;
+  const handlePressStart = (e) => {
+    if (e.type === "mousedown" && e.button !== 0) return;
+    isLongPress2 = false;
+    pressTimer = setTimeout(() => {
+      isLongPress2 = true;
+      pressTimer = null;
+      e.preventDefault();
+      if (imageTagButtonSettings.get(button)?.longPressToEdit == "true") {
+        showEditDialog(null, button);
+      }
+    }, longPressThreshold);
+  };
+  const handlePressEnd = () => {
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+  };
+  button.addEventListener("click", (e) => {
+    if (isLongPress2) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    e.preventDefault();
+    triggerGeneration(button);
+  });
+  button.addEventListener("mousedown", handlePressStart);
+  button.addEventListener("mouseup", handlePressEnd);
+  button.addEventListener("mouseleave", handlePressEnd);
+  button.addEventListener("touchstart", handlePressStart);
+  button.addEventListener("touchend", handlePressEnd);
+  button.addEventListener("touchcancel", handlePressEnd);
+  boundImageTagButtons.add(button);
+}
 async function createButtonAtPosition(insertPosition, tag, nodeInfos, doc, rootElement, settings3, shouldAutoClickBatch, imageAlt = "Generated Image") {
   const { startTag, endTag } = getImageTags4();
   const alreadyWrapped = tag.includes(startTag) && tag.includes(endTag);
@@ -54701,6 +54743,7 @@ async function createButtonAtPosition(insertPosition, tag, nodeInfos, doc, rootE
       `button.image-tag-button[data-link="${CSS.escape(link)}"], button.image-tag-button[data-image-tag="${CSS.escape(link)}"]`
     );
     if (existingButton2) {
+      bindImageTagButton(existingButton2, settings3);
       console.log("[iframe] Tag already inserted with button, skipping:", tag.substring(0, 50));
       return null;
     } else {
@@ -54712,6 +54755,7 @@ async function createButtonAtPosition(insertPosition, tag, nodeInfos, doc, rootE
     `button.image-tag-button[data-link="${CSS.escape(link)}"], button.image-tag-button[data-image-tag="${CSS.escape(link)}"]`
   );
   if (existingButton) {
+    bindImageTagButton(existingButton, settings3);
     console.log("[iframe] Button already exists, skipping:", link.substring(0, 50), "loading:", existingButton.hasAttribute("data-loading"));
     if (rootElement.setAttribute) {
       rootElement.setAttribute(tagMarkerAttr, "true");
@@ -54733,42 +54777,7 @@ async function createButtonAtPosition(insertPosition, tag, nodeInfos, doc, rootE
   button.dataset.requestId = requestId;
   button.dataset.imageTag = link;
   button.dataset.createdAt = String(Date.now());
-  let pressTimer = null;
-  let isLongPress2 = false;
-  const longPressThreshold = 1200;
-  const handlePressStart = (e) => {
-    if (e.type === "mousedown" && e.button !== 0) return;
-    isLongPress2 = false;
-    pressTimer = setTimeout(() => {
-      isLongPress2 = true;
-      pressTimer = null;
-      e.preventDefault();
-      if (settings3.longPressToEdit == "true") {
-        showEditDialog(null, button);
-      }
-    }, longPressThreshold);
-  };
-  const handlePressEnd = () => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-  };
-  button.addEventListener("click", (e) => {
-    if (isLongPress2) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    e.preventDefault();
-    triggerGeneration(button);
-  });
-  button.addEventListener("mousedown", handlePressStart);
-  button.addEventListener("mouseup", handlePressEnd);
-  button.addEventListener("mouseleave", handlePressEnd);
-  button.addEventListener("touchstart", handlePressStart);
-  button.addEventListener("touchend", handlePressEnd);
-  button.addEventListener("touchcancel", handlePressEnd);
+  bindImageTagButton(button, settings3);
   const imgSpan = doc.createElement("span");
   imgSpan.className = "st-chatu8-image-span";
   imgSpan.dataset.requestId = requestId;
@@ -54921,6 +54930,7 @@ async function findAndReplaceInElement(rootElement, imageAlt = "Generated Image"
       const allButtons = Array.from(rootElement.querySelectorAll("button.image-tag-button"));
       const mountPromises = [];
       for (const btn of allButtons) {
+        bindImageTagButton(btn, settings3);
         const requestId = btn.dataset.requestId;
         const span = rootElement.querySelector(`span[data-request-id="${requestId}"]`);
         if (span && !span.querySelector("img, video, .st-chatu8-video-fallback")) {
@@ -54982,6 +54992,7 @@ async function findAndReplaceInElement(rootElement, imageAlt = "Generated Image"
   }
   const loadingButton = rootElement.querySelector('button.image-tag-button[data-loading="true"]');
   if (loadingButton) {
+    bindImageTagButton(loadingButton, settings3);
     const startedAt = Number(loadingButton.dataset.loadingStartedAt || 0);
     const btnLink = loadingButton.dataset.link || loadingButton.dataset.imageTag;
     const generating = btnLink ? isGenerating(btnLink) : false;
@@ -55165,6 +55176,7 @@ async function findAndReplaceInElement(rootElement, imageAlt = "Generated Image"
     if (rootElement.hasAttribute && rootElement.hasAttribute(tagMarkerAttr)) {
       const existingBtn2 = rootElement.querySelector(`button.image-tag-button[data-link="${CSS.escape(link)}"]`);
       if (existingBtn2) {
+        bindImageTagButton(existingBtn2, settings3);
         console.log("[iframe] Tag already inserted with button, skipping:", link.substring(0, 50));
         continue;
       } else {
@@ -55174,6 +55186,7 @@ async function findAndReplaceInElement(rootElement, imageAlt = "Generated Image"
     }
     const existingBtn = rootElement.querySelector(`button.image-tag-button[data-link="${CSS.escape(link)}"]`);
     if (existingBtn) {
+      bindImageTagButton(existingBtn, settings3);
       console.log("[iframe] Button already exists, skipping:", link.substring(0, 50), "loading:", existingBtn.hasAttribute("data-loading"));
       if (rootElement.setAttribute) {
         rootElement.setAttribute(tagMarkerAttr, "true");
@@ -55190,42 +55203,7 @@ async function findAndReplaceInElement(rootElement, imageAlt = "Generated Image"
     button.dataset.requestId = requestId;
     button.dataset.imageTag = link;
     button.dataset.createdAt = String(Date.now());
-    let pressTimer = null;
-    let isLongPress2 = false;
-    const longPressThreshold = 1200;
-    const handlePressStart = (e) => {
-      if (e.type === "mousedown" && e.button !== 0) return;
-      isLongPress2 = false;
-      pressTimer = setTimeout(() => {
-        isLongPress2 = true;
-        pressTimer = null;
-        e.preventDefault();
-        if (extension_settings55[extensionName].longPressToEdit == "true") {
-          showEditDialog(null, button);
-        }
-      }, longPressThreshold);
-    };
-    const handlePressEnd = () => {
-      if (pressTimer) {
-        clearTimeout(pressTimer);
-        pressTimer = null;
-      }
-    };
-    button.addEventListener("click", (e) => {
-      if (isLongPress2) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-      e.preventDefault();
-      triggerGeneration(button);
-    });
-    button.addEventListener("mousedown", handlePressStart);
-    button.addEventListener("mouseup", handlePressEnd);
-    button.addEventListener("mouseleave", handlePressEnd);
-    button.addEventListener("touchstart", handlePressStart);
-    button.addEventListener("touchend", handlePressEnd);
-    button.addEventListener("touchcancel", handlePressEnd);
+    bindImageTagButton(button, settings3);
     const imgSpan = doc.createElement("span");
     imgSpan.className = "st-chatu8-image-span";
     imgSpan.dataset.requestId = requestId;
@@ -55313,7 +55291,7 @@ async function findAndReplaceInElement(rootElement, imageAlt = "Generated Image"
     rootElement.dataset.chatu8ContentLength = String(rootElement.textContent?.length || 0);
   }
 }
-var handledAutoClickRequestIds, handledAutoClickPromptMd5s;
+var handledAutoClickRequestIds, handledAutoClickPromptMd5s, boundImageTagButtons, imageTagButtonSettings;
 var init_placeholder = __esm({
   "utils/iframe/placeholder.js"() {
     init_config();
@@ -55328,6 +55306,8 @@ var init_placeholder = __esm({
     init_iframe();
     handledAutoClickRequestIds = /* @__PURE__ */ new Set();
     handledAutoClickPromptMd5s = /* @__PURE__ */ new Set();
+    boundImageTagButtons = /* @__PURE__ */ new WeakSet();
+    imageTagButtonSettings = /* @__PURE__ */ new WeakMap();
   }
 });
 
